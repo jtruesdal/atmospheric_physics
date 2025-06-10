@@ -24,7 +24,10 @@
     <scheme>apply_tendency_of_northward_wind</scheme>
     <scheme>qneg</scheme>
 
-    <!-- <scheme>physics_dme_adjust</scheme> -->
+    <!-- Update cp/cv for energy computation based in updated water variables -->
+
+    <!-- COMMENTED OUT until qini/liqini/iceini have initialization routines -->
+    <!-- <scheme>dme_adjust</scheme> -->
 
     <!-- MPAS and SE specific scaling of temperature for enforcing energy consistency:
          First, calculate the scaling based off cp_or_cv_dycore (from cam_thermo_water_update)
