@@ -106,7 +106,79 @@ subroutine gw_rdg_init(gw_rdg_do_divstream, gw_rdg_C_BetaMax_DS, gw_rdg_C_GammaM
   orostratmin         = gw_rdg_orostratmin
   orom2min            = gw_rdg_orom2min
 
-end subroutine gw_rdg_init
+  if (effgw_rdg_beta == unset_r8) then
+     call endrun(sub//": ERROR: Anisotropic OGW enabled, &
+          &but effgw_rdg_beta was not set.")
+  end if
+
+     fh_topo => topo_file_get_id()
+     bnd_topo_loc = ' '
+     if (.not. associated(fh_topo)) then
+
+        ! Try to open topo file here.  This workaround will not be needed
+        ! once the refactored initialization sequence is on trunk.
+
+        allocate(fh_topo)
+        ! Error exit is from getfil if file not found.
+        call getfil(bnd_topo, bnd_topo_loc)
+        call cam_pio_openfile(fh_topo, bnd_topo_loc, PIO_NOWRITE)
+
+     end if
+
+     ! Get beta ridge data
+     allocate( &
+        rdg_gbxar(ncols),      &
+        rdg_isovar(ncols),     &
+        rdg_isowgt(ncols),     &
+        rdg_hwdth(ncols,prdg), &
+        rdg_clngt(ncols,prdg), &
+        rdg_mxdis(ncols,prdg), &
+        rdg_anixy(ncols,prdg), &
+        rdg_angll(ncols,prdg)  )
+
+     call infld('GBXAR', fh_topo, dim1name, dim2name, 1, pcols, &
+                         begchunk, endchunk, rdg_gbxar, found, gridname='physgrid')
+     if (.not. found) call endrun(sub//': ERROR: GBXAR not found on topo file')
+     rdg_gbxar = rdg_gbxar * (rearth/1000._r8)*(rearth/1000._r8) ! transform to km^2
+
+     call infld('ISOVAR', fh_topo, dim1name, dim2name, 1, pcols, &
+                         begchunk, endchunk, rdg_isovar, found, gridname='physgrid')
+!     if (.not. found) call endrun(sub//': ERROR: ISOVAR not found on topo file')
+     ! ++jtb - Temporary fix until topo files contain this variable
+     if (.not. found) rdg_isovar(:,:) = 0._r8
+
+     call infld('ISOWGT', fh_topo, dim1name, dim2name, 1, pcols, &
+                         begchunk, endchunk, rdg_isowgt, found, gridname='physgrid')
+!     if (.not. found) call endrun(sub//': ERROR: ISOWGT not found on topo file')
+     ! ++jtb - Temporary fix until topo files contain this variable
+     if (.not. found) rdg_isowgt(:,:) = 0._r8
+
+     call infld('HWDTH', fh_topo, dim1name, 'nrdg', dim2name, 1, pcols, &
+                1, prdg, begchunk, endchunk, rdg_hwdth, found, gridname='physgrid')
+     if (.not. found) call endrun(sub//': ERROR: HWDTH not found on topo file')
+
+     call infld('CLNGT', fh_topo, dim1name, 'nrdg', dim2name, 1, pcols, &
+                1, prdg, begchunk, endchunk, rdg_clngt, found, gridname='physgrid')
+     if (.not. found) call endrun(sub//': ERROR: CLNGT not found on topo file')
+
+     call infld('MXDIS', fh_topo, dim1name, 'nrdg', dim2name, 1, pcols, &
+                1, prdg, begchunk, endchunk, rdg_mxdis, found, gridname='physgrid')
+     if (.not. found) call endrun(sub//': ERROR: MXDIS not found on topo file')
+
+     call infld('ANIXY', fh_topo, dim1name, 'nrdg', dim2name, 1, pcols, &
+                1, prdg, begchunk, endchunk, rdg_anixy, found, gridname='physgrid')
+     if (.not. found) call endrun(sub//': ERROR: ANIXY not found on topo file')
+
+     call infld('ANGLL', fh_topo, dim1name, 'nrdg', dim2name, 1, pcols, &
+                1, prdg, begchunk, endchunk, rdg_angll, found, gridname='physgrid')
+     if (.not. found) call endrun(sub//': ERROR: ANGLL not found on topo file')
+
+     ! close topo file only if it was opened here
+     if (len_trim(bnd_topo_loc) > 0) then
+        call pio_closefile(fh_topo)
+     end if
+
+   end subroutine gw_rdg_init
 
 subroutine gw_rdg_src(ncol, pver, band, p, &
      u, v, t, mxdis, angxy, anixy, kwvrdg, iso, zi, nm, &

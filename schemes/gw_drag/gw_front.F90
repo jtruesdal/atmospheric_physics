@@ -110,10 +110,7 @@ end function gaussian_cm_desc
 
 !==========================================================================
 subroutine gw_cm_src(ncol, band, &
-     desc_ksrc, &
-     desc_kfront, &
-     desc_frontgfc, &
-     desc_src_tau, &
+     desc, &
      u, v, frontgf, &
      src_level, tend_level, tau, ubm, ubi, xv, yv, c)
   use gw_utils, only: get_unit_vector, dot_2d, midpoint_interp
@@ -129,13 +126,8 @@ subroutine gw_cm_src(ncol, band, &
   integer, intent(in) :: ncol
 
   ! Wavelengths triggered by frontogenesis.
-  type(GWBand), intent(in) :: band
-
-  ! Bandification of how to produce the gravity wave bandtrum.
-  integer, intent(in)             ::  desc_ksrc
-  integer, intent(in)             ::  desc_kfront
-  real(kind_phys), intent(in)     ::  desc_frontgfc
-  real(kind_phys), intent(in)     ::  desc_src_tau(-band%ngwv:band%ngwv)
+  type(CMSourceDesc), intent(in)  :: desc
+  type(GWBand), intent(in)        :: band
 
   ! Midpoint zonal/meridional winds.
   real(kind_phys), intent(in) :: u(ncol,pver), v(ncol,pver)
@@ -172,16 +164,16 @@ subroutine gw_cm_src(ncol, band, &
 
   ! Just use the source level interface values for the source wind speed
   ! and direction (unit vector).
-  src_level = desc_ksrc
-  tend_level = desc_ksrc
-  usrc = 0.5_kind_phys*(u(:,desc_ksrc+1)+u(:,desc_ksrc))
-  vsrc = 0.5_kind_phys*(v(:,desc_ksrc+1)+v(:,desc_ksrc))
+  src_level = desc%ksrc
+  tend_level = desc%ksrc
+  usrc = 0.5_kind_phys*(u(:,desc%ksrc+1)+u(:,desc%ksrc))
+  vsrc = 0.5_kind_phys*(v(:,desc%ksrc+1)+v(:,desc%ksrc))
 
   ! Get the unit vector components and magnitude at the surface.
-  call get_unit_vector(usrc, vsrc, xv, yv, ubi(:,desc_ksrc+1))
+  call get_unit_vector(usrc, vsrc, xv, yv, ubi(:,desc%ksrc+1))
 
   ! Project the local wind at midpoints onto the source wind.
-  do k = 1, desc_ksrc
+  do k = 1, desc%ksrc
      ubm(:,k) = dot_2d(u(:,k), v(:,k), xv, yv)
   end do
 
@@ -189,7 +181,7 @@ subroutine gw_cm_src(ncol, band, &
   ! Use the top level wind at the top interface.
   ubi(:,1) = ubm(:,1)
 
-  ubi(:,2:desc_ksrc) = midpoint_interp(ubm(:,1:desc_ksrc))
+  ubi(:,2:desc%ksrc) = midpoint_interp(ubm(:,1:desc%ksrc))
 
   !-----------------------------------------------------------------------
   ! Gravity wave sources
@@ -199,18 +191,18 @@ subroutine gw_cm_src(ncol, band, &
 
   ! GW generation depends on frontogenesis at specified level (may be below
   ! actual source level).
-  launch_wave = (frontgf(:,desc_kfront) > desc_frontgfc)
+  launch_wave = (frontgf(:,desc%kfront) > desc%frontgfc)
 
   do l = -band%ngwv, band%ngwv
      where (launch_wave)
-        tau(:,l,desc_ksrc+1) = desc_src_tau(l)
+        tau(:,l,desc%ksrc+1) = desc%src_tau(l)
      end where
   end do
 
   ! Set phase speeds as reference speeds plus the wind speed at the source
   ! level.
   c = spread(band%cref, 1, ncol) + &
-       spread(ubi(:,desc_ksrc+1), 2, 2*band%ngwv+1)
+       spread(ubi(:,desc%ksrc+1), 2, 2*band%ngwv+1)
 
 end subroutine gw_cm_src
 

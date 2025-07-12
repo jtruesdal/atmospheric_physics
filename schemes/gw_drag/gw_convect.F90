@@ -13,8 +13,6 @@ save
 
 !!$public :: gw_beres_run
 !!$public :: gw_beres_init
-public :: BeresSourceDesc
-public :: gw_beres_src
 
 type :: BeresSourceDesc
    ! Whether wind speeds are shifted to be relative to storm cells.
@@ -32,6 +30,11 @@ type :: BeresSourceDesc
    real(kind_phys), allocatable :: mfcc(:,:,:)
 end type BeresSourceDesc
 
+! Beres settings and table.
+type(BeresSourceDesc) :: beres_dp_desc
+type(BeresSourceDesc) :: beres_sh_desc
+type(GWBand)          :: band
+
 real(kind_phys), allocatable :: tau(:,:,:)  ! wave Reynolds stress
 
 ! gravity wave wind tendency for each wave
@@ -46,133 +49,214 @@ real(kind_phys), allocatable :: phase_speeds(:,:)
 
 contains
 
-!!$!==========================================================================
-!!$subroutine gw_beres_init(file_name,ttend_sh,ttend_dp,effgw)
+!==========================================================================
+subroutine gw_beres_init((file_path_sh, file_path_dp, pref_edge, gw_dc, wavelength, pgwv, use_gw_convect_dp,use_gw_convect_sh, masterproc, iulog, errmsg, errflg )
+  use ccpp_io_reader, only: abstract_netcdf_reader_t, create_netcdf_reader_t
+
+  character(len=*), intent(in) :: file_path_sh, file_path_dp
+  real(kind_phys), intent(in)                   :: pref_edge(:)
+  real(kind_phys), intent(in)                   :: gw_dc
+  real(kind_phys), intent(in)                   :: wavelength
+  integer, intent(in)                           :: pgwv
+  logical, intent(in)                           :: use_gw_convect_dp, use_gw_convect_sh
+
+  logical, intent(in)                           :: masterproc
+  integer, intent(in)                           :: iulog
+  character(len=512), intent(out)               :: errmsg
+  integer, intent(out)                          :: errflg
+
+  ! Number of wavenumbers in the input file.
+  integer :: ngwv_file
+
+  ! Full path to gw_drag_file.
+
+  character(len=cl) :: msg
+
+  class(abstract_netcdf_reader_t), allocatable :: reader
+  type(file_desc_t) :: gw_file_desc
+
+  type(BeresSourceDesc), pointer :: desc
+
+  !----------------------------------------------------------------------
+  ! read in look-up table for source spectra
+  !-----------------------------------------------------------------------
+
+  errmsg =''
+  errflg = 0
+
+  if (use_gw_convect_dp) then
+     ttend_dp_idx    = pbuf_get_index('TTEND_DP')
+
+     ! Set the deep scheme specification components.
+     beres_dp_desc%storm_shift = .false.
+
+     do k = 0, pver
+        ! 700 hPa index
+        if (pref_edge(k+1) < 70000._r8) beres_dp_desc%k = k+1
+     end do
+
+     if (masterproc) then
+        write (iulog,*) 'Beres deep level =',beres_dp_desc%k
+     end if
+
+     ! Don't use deep convection heating depths below this limit.
+     ! This is important for QBO. Bad result if left at 2.5 km.
+     beres_dp_desc%min_hdepth = 1000._r8
+
+     band = GWBand(pgwv, gw_dc, 1.0_kind_phys, wavelength)
+     ! Read Beres file.
+     call shr_assert(trim(gw_drag_file) /= "", &
+          "gw_init: No gw_drag_file provided for Beres deep &
+          &scheme. Set this via namelist."// &
+          errMsg(__FILE__, __LINE__))
+
+     call gw_init_beres_desc(file_path_dp, band, beres_dp_desc)
+  end if
+
+  if (use_gw_convect_sh) then
+
+     ttend_sh_idx    = pbuf_get_index('TTEND_SH')
+
+     ! Set the shallow scheme specification components.
+     beres_sh_desc%storm_shift = .false.
+
+     do k = 0, pver
+        ! 900 hPa index
+        if (pref_edge(k+1) < 90000._r8) beres_sh_desc%k = k+1
+     end do
+
+     if (masterproc) then
+        write (iulog,*) 'Beres shallow level =',beres_sh_desc%k
+     end if
+
+     ! Use all heating depths for shallow convection.
+     beres_sh_desc%min_hdepth = 0._r8
+
+     ! Read Beres file.
+
+     call shr_assert(trim(gw_drag_file_sh) /= "", &
+          "gw_init: No gw_drag_file_sh provided for Beres shallow &
+          &scheme. Set this via namelist."// &
+          errMsg(__FILE__, __LINE__))
+
+     call gw_init_beres_desc(gw_drag_file_sh, band_mid, beres_sh_desc)
+
+
+     ! Allocate wavenumber fields.
+     allocate(tau(ncol,-band%ngwv:band%ngwv,pver+1),stat=istat)
+     call alloc_err(istat,'gw_tend','tau',ncol*(band%ngwv**2+1)*(pver+1))
+     allocate(gwut(ncol,pver,-band%ngwv:band%ngwv),stat=istat)
+     call alloc_err(istat,'gw_tend','gwut',ncol*pver*(band%ngwv**2+1))
+     allocate(phase_speeds(ncol,-band%ngwv:band%ngwv),stat=istat)
+     call alloc_err(istat,'gw_tend','phase_speeds',ncol*(band%ngwv**2+1))
+
+     ! Efficiency of gravity wave momentum transfer.
+     ! This is really only to remove the pole points.
+     where (pi/2._kind_phys - abs(lat(:ncol)) >= 4*epsilon(1._kind_phys))
+        effgw_dp = effgw_beres_dp
+        effgw_sh = effgw_beres_sh
+     elsewhere
+        effgw_dp = 0._kind_phys
+        effgw_sh = 0._kind_phys
+     end where
+
+   contains
+     subroutine gw_init_beres_desc(file_path, band, desc)
+       character(len=*), intent(in) :: file_path,
+       type(GWBand)                 :: band
+       type(BeresSourceDesc)        :: desc
+
+       ! Read Beres file.
+
+!!$  reader = create_netcdf_reader_t()
 !!$
-!!$  character(len=*), intent(in) :: file_name
-!!$  type(GWBand), intent(in) :: band
-!!$
-!!$  type(BeresSourceDesc), intent(inout) :: desc
-!!$
-!!$  type(file_desc_t) :: gw_file_desc
-!!$
-!!$  ! PIO variable ids and error code.
-!!$  integer :: mfccid, hdid, stat
-!!$
-!!$  ! Number of wavenumbers in the input file.
-!!$  integer :: ngwv_file
-!!$
-!!$  ! Full path to gw_drag_file.
-!!$  character(len=cl) :: file_path
-!!$
-!!$  character(len=cl) :: msg
-!!$
-!!$  !----------------------------------------------------------------------
-!!$  ! read in look-up table for source spectra
-!!$  !-----------------------------------------------------------------------
-!!$
-!!$  call getfil(file_name, file_path)
-!!$  call cam_pio_openfile(gw_file_desc, file_path, pio_nowrite)
-!!$
-!!$  ! Get HD (heating depth) dimension.
-!!$
-!!$  desc%maxh = get_pio_dimlen(gw_file_desc, "HD", file_path)
-!!$
-!!$  ! Get MW (mean wind) dimension.
-!!$
-!!$  desc%maxuh = get_pio_dimlen(gw_file_desc, "MW", file_path)
-!!$
-!!$  ! Get PS (phase speed) dimension.
-!!$
-!!$  ngwv_file = get_pio_dimlen(gw_file_desc, "PS", file_path)
-!!$
-!!$  ! Number in each direction is half of total (and minus phase speed of 0).
-!!$  desc%maxuh = (desc%maxuh-1)/2
-!!$  ngwv_file = (ngwv_file-1)/2
-!!$
-!!$  call shr_assert(ngwv_file >= band%ngwv, &
-!!$       "gw_init_beres: PhaseSpeed in lookup table file does not cover the whole &
-!!$       &spectrum implied by the model's ngwv. ")
-!!$
-!!$  ! Allocate hd and get data.
-!!$
-!!$  allocate(desc%hd(desc%maxh), stat=stat, errmsg=msg)
-!!$
-!!$  call shr_assert(stat == 0, &
-!!$       "gw_init_beres: Allocation error (hd): "//msg// &
-!!$       errMsg(__FILE__, __LINE__))
-!!$
-!!$  stat = pio_inq_varid(gw_file_desc,'HD',hdid)
-!!$
-!!$  call handle_pio_error(stat, &
-!!$       'Error finding HD in: '//trim(file_path))
-!!$
-!!$  stat = pio_get_var(gw_file_desc, hdid, start=[1], count=[desc%maxh], &
-!!$       ival=desc%hd)
-!!$
-!!$  call handle_pio_error(stat, &
-!!$       'Error reading HD from: '//trim(file_path))
-!!$
-!!$  ! While not currently documented in the file, it uses kilometers. Convert
-!!$  ! to meters.
-!!$  desc%hd = desc%hd*1000._kind_phys
-!!$
-!!$  ! Allocate mfcc. "desc%maxh" and "desc%maxuh" are from the file, but the
-!!$  ! model determines wavenumber dimension.
-!!$
-!!$  allocate(desc%mfcc(desc%maxh,-desc%maxuh:desc%maxuh,&
-!!$       -band%ngwv:band%ngwv), stat=stat, errmsg=msg)
-!!$
-!!$  call shr_assert(stat == 0, &
-!!$       "gw_init_beres: Allocation error (mfcc): "//msg// &
-!!$       errMsg(__FILE__, __LINE__))
-!!$
-!!$  ! Get mfcc data.
-!!$
-!!$  stat = pio_inq_varid(gw_file_desc,'mfcc',mfccid)
-!!$
-!!$  call handle_pio_error(stat, &
-!!$       'Error finding mfcc in: '//trim(file_path))
-!!$
-!!$  stat = pio_get_var(gw_file_desc, mfccid, &
-!!$       start=[1,1,ngwv_file-band%ngwv+1], count=shape(desc%mfcc), &
-!!$       ival=desc%mfcc)
-!!$
-!!$  call handle_pio_error(stat, &
-!!$       'Error reading mfcc from: '//trim(file_path))
-!!$
-!!$  call pio_closefile(gw_file_desc)
-!!$
-!!$  if (masterproc) then
-!!$
-!!$     write(iulog,*) "Read in source spectra from file."
-!!$     write(iulog,*) "mfcc max, min = ", &
-!!$          maxval(desc%mfcc),", ",minval(desc%mfcc)
-!!$
-!!$  endif
-!!$
-!!$  band = GWBand(pgwv, gw_dc, 1.0_kind_phys, wavelength_mid)
-!!$
-!!$! Allocate wavenumber fields.
-!!$     allocate(tau(ncol,-band%ngwv:band%ngwv,pver+1),stat=istat)
-!!$     call alloc_err(istat,'gw_tend','tau',ncol*(band%ngwv**2+1)*(pver+1))
-!!$     allocate(gwut(ncol,pver,-band%ngwv:band%ngwv),stat=istat)
-!!$     call alloc_err(istat,'gw_tend','gwut',ncol*pver*(band%ngwv**2+1))
-!!$     allocate(phase_speeds(ncol,-band%ngwv:band%ngwv),stat=istat)
-!!$     call alloc_err(istat,'gw_tend','phase_speeds',ncol*(band%ngwv**2+1))
-!!$
-!!$     ! Efficiency of gravity wave momentum transfer.
-!!$     ! This is really only to remove the pole points.
-!!$     where (pi/2._kind_phys - abs(lat(:ncol)) >= 4*epsilon(1._kind_phys))
-!!$        effgw_dp = effgw_beres_dp
-!!$        effgw_sh = effgw_beres_sh
-!!$     elsewhere
-!!$        effgw_dp = 0._kind_phys
-!!$        effgw_sh = 0._kind_phys
-!!$     end where
-!!$
-!!$
-!!$end subroutine gw_beres_init
+!!$  ! Open file
+!!$  call reader%open_file(file_path_dp, errmsg, errcode)
+!!$  if (errcode /= 0) then
+!!$     return !Error has occurred, so exit scheme
+!!$  end if
+
+       call cam_pio_openfile(gw_file_desc, file_path, pio_nowrite)
+
+       ! Get HD (heating depth) dimension.
+
+       desc%maxh = get_pio_dimlen(gw_file_desc, "HD", file_path)
+
+       ! Get MW (mean wind) dimension.
+
+       desc%maxuh = get_pio_dimlen(gw_file_desc, "MW", file_path)
+
+       ! Get PS (phase speed) dimension.
+
+       ngwv_file = get_pio_dimlen(gw_file_desc, "PS", file_path)
+
+       ! Number in each direction is half of total (and minus phase speed of 0).
+       desc%maxuh = (desc%maxuh-1)/2
+       ngwv_file = (ngwv_file-1)/2
+
+       call shr_assert(ngwv_file >= band%ngwv, &
+            "gw_beres_init: PhaseSpeed in lookup table file does not cover the whole &
+            &spectrum implied by the model's ngwv. ")
+
+       ! Allocate hd and get data.
+
+       allocate(desc%hd(desc%maxh), stat=stat, errmsg=msg)
+
+       call shr_assert(stat == 0, &
+            "gw_beres_init: Allocation error (hd): "//msg// &
+            errMsg(__FILE__, __LINE__))
+
+       stat = pio_inq_varid(gw_file_desc,'HD',hdid)
+
+       call handle_pio_error(stat, &
+            'Error finding HD in: '//trim(file_path))
+
+       stat = pio_get_var(gw_file_desc, hdid, start=[1], count=[desc%maxh], &
+            ival=desc%hd)
+
+       call handle_pio_error(stat, &
+            'Error reading HD from: '//trim(file_path))
+
+       ! While not currently documented in the file, it uses kilometers. Convert
+       ! to meters.
+       desc%hd = desc%hd*1000._kind_phys
+
+       ! Allocate mfcc. "desc%maxh" and "desc%maxuh" are from the file, but the
+       ! model determines wavenumber dimension.
+
+       allocate(desc%mfcc(desc%maxh,-desc%maxuh:desc%maxuh,&
+            -band%ngwv:band%ngwv), stat=stat, errmsg=msg)
+
+       call shr_assert(stat == 0, &
+            "gw_beres_init: Allocation error (mfcc): "//msg// &
+            errMsg(__FILE__, __LINE__))
+
+       ! Get mfcc data.
+
+       stat = pio_inq_varid(gw_file_desc,'mfcc',mfccid)
+
+       call handle_pio_error(stat, &
+            'Error finding mfcc in: '//trim(file_path))
+
+       stat = pio_get_var(gw_file_desc, mfccid, &
+            start=[1,1,ngwv_file-band%ngwv+1], count=shape(desc%mfcc), &
+            ival=desc%mfcc)
+
+       call handle_pio_error(stat, &
+            'Error reading mfcc from: '//trim(file_path))
+       call pio_closefile(gw_file_desc)
+
+       if (masterproc) then
+
+          write(iulog,*) "Read in source spectra from file."
+          write(iulog,*) "mfcc max, min = ", &
+               maxval(desc%mfcc),", ",minval(desc%mfcc)
+
+       endif
+
+     end subroutine gw_init_beres_desc
+  end if
+end subroutine gw_beres_init
 !!$!==========================================================================
 !!$subroutine gw_beres_run(ncol, band, desc, u, v, &
 !!$     netdt, zm, src_level, tend_level, tau, ubm, ubi, xv, yv, &
@@ -250,14 +334,8 @@ contains
 !!$end subroutine gw_beres_run
 !!$!==========================================================================
 
-  subroutine gw_beres_src(ncol, band, &
-       desc_storm_shift, &
-       desc_k, &
-       desc_min_hdepth, &
-       desc_maxh, &
-       desc_maxuh, &
-       desc_hd, &
-       desc_mfcc, &
+  subroutine gw_beres_src(ncol, &
+       desc, &
        u, v, &
      netdt, zm, src_level, tend_level, tau, ubm, ubi, xv, yv, &
      c, hdepth, maxq0)
@@ -274,23 +352,12 @@ contains
 !
 !-----------------------------------------------------------------------
   use gw_utils, only: get_unit_vector, dot_2d, midpoint_interp
-  use gw_common, only: GWBand, pver, qbo_hdepth_scaling
+  use gw_common, only:  pver, qbo_hdepth_scaling
 
 !------------------------------Arguments--------------------------------
   ! Column dimension.
   integer, intent(in) :: ncol
-
-  ! Wavelengths triggered by convection.
-  type(GWBand), intent(in) :: band
-
-  ! Settings for convection type (e.g. deep vs shallow).
-  logical, intent(in)             ::  desc_storm_shift
-  integer, intent(in)             ::  desc_k
-  real(kind_phys), intent(in)     ::  desc_min_hdepth
-  integer, intent(in)             ::  desc_maxh
-  integer, intent(in)             ::  desc_maxuh
-  real(kind_phys), intent(in)     ::  desc_hd(:)
-  real(kind_phys), intent(in)     ::  desc_mfcc(desc_maxh,-desc_maxuh:desc_maxuh,-band%ngwv:band%ngwv)
+  type(BeresSourceDesc) :: desc
 
   ! Midpoint zonal/meridional winds.
   real(kind_phys), intent(in) :: u(:,:), v(:,:)
@@ -361,11 +428,11 @@ contains
   !------------------------------------------------------------------------
 
   ! Source wind speed and direction.
-  uconv = u(:,desc_k)
-  vconv = v(:,desc_k)
+  uconv = u(:,desc%k)
+  vconv = v(:,desc%k)
 
   ! Get the unit vector components and magnitude at the source level.
-  call get_unit_vector(uconv, vconv, xv, yv, ubi(:,desc_k+1))
+  call get_unit_vector(uconv, vconv, xv, yv, ubi(:,desc%k+1))
 
   ! Project the local wind at midpoints onto the source wind.
   do k = 1, pver
@@ -391,7 +458,7 @@ contains
   do k = pver, 1, -1
      do i = 1, ncol
         if (boti(i) == 0) then
-           ! Detect if we are outside the maximum range (where z = 20 km).
+           ! Detect if we are outside the top of range (where z = 20 km).
            if (zm(i,k) >= 20000._kind_phys) then
               boti(i) = k
               topi(i) = k
@@ -399,17 +466,20 @@ contains
               ! First spot where heating rate is positive.
               if (netdt(i,k) > 0.0_kind_phys) boti(i) = k
            end if
-        else if (topi(i) == 0) then
-           ! Detect if we are outside the maximum range (z = 20 km).
-           if (zm(i,k) >= 20000._kind_phys) then
-              topi(i) = k
-           else
-              ! First spot where heating rate is no longer positive.
-              if (.not. (netdt(i,k) > 0.0_kind_phys)) topi(i) = k
-           end if
         end if
      end do
-     ! When all done, exit.
+     ! When all done, exit
+     if (all(boti /= 0)) exit
+  end do
+
+  do k = 1, pver
+     do i = 1, ncol
+        if (topi(i) == 0) then
+                ! First spot where heating rate is positive.
+              if ((netdt(i,k) > 0.0_kind_phys) .AND. (zm(i,k) <= 20000._kind_phys)) topi(i) = k-1
+        end if
+     end do
+     ! When all done, exit
      if (all(topi /= 0)) exit
   end do
 
@@ -419,13 +489,13 @@ contains
   ! J. Richter: this is an effective reduction of the GW phase speeds (needed to drive the QBO)
   hdepth = hdepth*qbo_hdepth_scaling
 
-  hd_idx = index_of_nearest(hdepth, desc_hd)
+  hd_idx = index_of_nearest(hdepth, desc%hd)
 
   ! hd_idx=0 signals that a heating depth is too shallow, i.e. that it is
   ! either not big enough for the lowest table entry, or it is below the
   ! minimum allowed for this convection type.
   ! Values above the max in the table still get the highest value, though.
-  where (hdepth < max(desc_min_hdepth, desc_hd(1))) hd_idx = 0
+  where (hdepth < max(desc%min_hdepth, desc%hd(1))) hd_idx = 0
 
   ! Maximum heating rate.
   do k = minval(topi), maxval(boti)
@@ -440,11 +510,11 @@ contains
   ! Multipy by conversion factor
   q0 = q0 * CF
 
-  if (desc_storm_shift) then
+  if (desc%storm_shift) then
 
      ! Find the cell speed where the storm speed is > 10 m/s.
      ! Storm speed is taken to be the source wind speed.
-     CS = sign(max(abs(ubm(:,desc_k))-10._kind_phys, 0._kind_phys), ubm(:,desc_k))
+     CS = sign(max(abs(ubm(:,desc%k))-10._kind_phys, 0._kind_phys), ubm(:,desc%k))
 
      ! Average wind in heating region, relative to storm cells.
      uh = 0._kind_phys
@@ -460,13 +530,13 @@ contains
 
      ! For shallow convection, wind is relative to ground, and "heating
      ! region" wind is just the source level wind.
-     uh = ubm(:,desc_k)
+     uh = ubm(:,desc%k)
 
   end if
 
   ! Limit uh to table range.
-  uh = min(uh, real(desc_maxuh, kind_phys))
-  uh = max(uh, -real(desc_maxuh, kind_phys))
+  uh = min(uh, real(desc%maxuh, kind_phys))
+  uh = max(uh, -real(desc%maxuh, kind_phys))
 
   ! Speeds for critical level filtering.
   Umini =  band%ngwv
@@ -499,9 +569,9 @@ contains
         ! Look up the spectrum using depth and uh.
         !------------------------------------------------------------------
 
-        tau0 = desc_mfcc(hd_idx(i),nint(uh(i)),:)
+        tau0 = desc%mfcc(hd_idx(i),nint(uh(i)),:)
 
-        if (desc_storm_shift) then
+        if (desc%storm_shift) then
            ! For deep convection, the wind was relative to storm cells, so
            ! shift the spectrum so that it is now relative to the ground.
            shift = -nint(CS(i)/band%dc)

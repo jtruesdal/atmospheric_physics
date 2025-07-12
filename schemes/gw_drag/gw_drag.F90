@@ -92,6 +92,11 @@ module gw_drag
   ! Width of gaussian used to create frontogenesis tau profile [m s-1].
   real(kind_phys)                      :: front_gaussian_width = -huge(1._kind_phys)
   real(kind_phys)                      :: alpha_gw_movmtn
+  real(kind_phys)                      :: effgw_rdg_resid
+  real(kind_phys)                      :: effgw_movmtn_pbl
+  integer                              :: movmtn_source
+  real(kind_phys)                      :: movmtn_psteer
+  real(kind_phys)                      :: movmtn_plaunch
 
   real(kind_phys), parameter :: unset_kind_phys = huge(1._kind_phys)
 
@@ -127,13 +132,13 @@ module gw_drag
   real(kind_phys)   :: dlat0
   real(kind_phys),allocatable   :: pref_edge(:), pref_mid(:)
   real(kind_phys)   :: degree2radian
-  integer           :: gw_bot_taper_pres
   integer           :: ncid_topo
   logical           :: masterproc
 
 
   logical         ::  use_gw_oro
   logical         ::  use_gw_front
+  logical         ::  use_gw_rdg_resid
   logical         ::  use_gw_front_igw
   logical         ::  use_gw_convect_dp
   logical         ::  use_gw_convect_sh
@@ -155,18 +160,6 @@ module gw_drag
   ! Whether or not to apply tendency max
   logical :: gw_apply_tndmax = .true.
 
-
-!!$  ! Beres settings and table.
-!!$  type(BeresSourceDesc) :: beres_dp_desc
-!!$  type(BeresSourceDesc) :: beres_sh_desc
-!!$
-!!$  ! Moving mountain settings and table.
-!!$  type(MovMtnSourceDesc) :: movmtn_desc
-!!$
-!!$  ! Frontogenesis wave settings.
-!!$  type(CMSourceDesc) :: cm_desc
-!!$  type(CMSourceDesc) :: cm_igw_desc
-!!$
   real(kind_phys), allocatable, dimension(:), target :: &
      rdg_gbxar
 
@@ -211,36 +204,7 @@ module gw_drag
   logical ::  do_divstream, do_smooth_regimes, do_adjust_tauoro, &
               do_backward_compat,do_vdiff
 
-  logical                         ::  beres_dp_desc_storm_shift
-  integer                         ::  beres_dp_desc_k
-  real(kind_phys)                 ::  beres_dp_desc_min_hdepth
-  integer                         ::  beres_dp_desc_maxh
-  integer                         ::  beres_dp_desc_maxuh
-  real(kind_phys),allocatable     ::  beres_dp_desc_hd(:)
-  real(kind_phys),allocatable     ::  beres_dp_desc_mfcc(:,:,:)
-  logical                         ::  beres_sh_desc_storm_shift
-  integer                         ::  beres_sh_desc_k
-  real(kind_phys)                 ::  beres_sh_desc_min_hdepth
-  integer                         ::  beres_sh_desc_maxh
-  integer                         ::  beres_sh_desc_maxuh
-  real(kind_phys),allocatable     ::  beres_sh_desc_hd(:)
-  real(kind_phys),allocatable     ::  beres_sh_desc_mfcc(:,:,:)
-  logical                         ::  movmtn_desc_storm_shift
-  integer                         ::  movmtn_desc_k
-  real(kind_phys)                 ::  movmtn_desc_min_hdepth
-  integer                         ::  movmtn_desc_maxh
-  integer                         ::  movmtn_desc_maxuh
-  real(kind_phys),allocatable     ::  movmtn_desc_hd(:)
-  real(kind_phys),allocatable     ::  movmtn_desc_uh(:)
-  real(kind_phys),allocatable     ::  movmtn_desc_mfcc(:,:,:)
-  integer                         ::  cm_desc_ksrc
-  integer                         ::  cm_desc_kfront
-  real(kind_phys)                 ::  cm_desc_frontgfc
-  real(kind_phys),allocatable     ::  cm_desc_src_tau(:)
-  integer                         ::  cm_igw_desc_ksrc
-  integer                         ::  cm_igw_desc_kfront
-  real(kind_phys)                 ::  cm_igw_desc_frontgfc
-  real(kind_phys),allocatable     ::  cm_igw_desc_src_tau(:)
+
 !==========================================================================
 contains
 !==========================================================================
@@ -248,24 +212,28 @@ contains
 !> \section arg_table_gw_drag_init Argument Table
 !! \htmlinclude gw_drag_init.html
   subroutine gw_drag_init( &
+       iulog_in,  &
+       ktop_in,  &
+       masterproc_in, &
        pver,  &
        gravit_in,  &
        rair_in,  &
        pi_in,  &
+       fcrit2_in,  &
+
+       pref_edge_in,  &
+       pref_mid_in,  &
+
        pgwv_in,  &
        gw_dc_in,  &
        pgwv_long_in,  &
        gw_dc_long_in,  &
        tau_0_ubc_in,  &
-       pref_edge_in,  &
-       pref_mid_in,  &
-       gw_bot_taper_pres,  &
        effgw_beres_dp_in,  &
        effgw_beres_sh_in,  &
        effgw_cm_in,  &
        effgw_cm_igw_in,  &
        effgw_oro_in,  &
-       fcrit2_in,  &
        frontgfc_in,  &
        gw_drag_file_in,  &
        gw_drag_file_sh_in,  &
@@ -295,80 +263,32 @@ contains
        gw_top_taper_in,  &
        front_gaussian_width_in,  &
        alpha_gw_movmtn_in,  &
-       use_gw_front_in,  &
+       use_gw_rdg_resid_in, &
+
+       effgw_rdg_resid_in, &
+       effgw_movmtn_pbl_in, &
+       movmtn_source_in, &
+       movmtn_psteer_in, &
+       movmtn_plaunch_in, &
+
        use_gw_oro_in,  &
+       use_gw_front_in,  &
        use_gw_front_igw_in,  &
        use_gw_convect_dp_in,  &
        use_gw_convect_sh_in,  &
        use_simple_phys_in,  &
        use_gw_movmtn_pbl_in,  &
-       iulog_in,  &
-       ktop_in,  &
-       masterproc_in, &
+
        do_molec_diff_in,  &
+       nbot_molec_in, &
+       press_lim_idx_in, &
+
        wavelength_mid_in,  &
        wavelength_long_in,  &
-!!$    gw_rdg_do_divstream,  &
-!!$    gw_rdg_C_BetaMax_DS,  &
-!!$    gw_rdg_C_GammaMax,  &
-!!$    gw_rdg_Frx0,  &
-!!$    gw_rdg_Frx1,  &
-!!$    gw_rdg_C_BetaMax_SM,  &
-!!$    gw_rdg_Fr_c,  &
-!!$    gw_rdg_do_smooth_regimes,  &
-!!$    gw_rdg_do_adjust_tauoro,  &
-!!$    gw_rdg_do_backward_compat,  &
-!!$    gw_rdg_orohmin,  &
-!!$    gw_rdg_orovmin,  &
-!!$    gw_rdg_orostratmin,  &
-!!$    gw_rdg_orom2min,  &
-!!$    gw_rdg_do_vdiff,  &
-!!$       rdg_gbxar_in,  &
-!!$       rdg_hwdth_in,  &
-!!$       rdg_clngt_in,  &
-!!$       rdg_mxdis_in,  &
-!!$       rdg_anixy_in,  &
-!!$       rdg_angll_in,  &
-!!$       rdg_gbxarg_in,  &
-!!$       rdg_hwdthg_in,  &
-!!$       rdg_clngtg_in,  &
-!!$       rdg_mxdisg_in,  &
-!!$       rdg_anixyg_in,  &
-!!$       rdg_angllg_in,  &
-       beres_dp_desc_storm_shift_in, &
-       beres_dp_desc_k_in, &
-       beres_dp_desc_min_hdepth_in, &
-       beres_dp_desc_maxh_in, &
-       beres_dp_desc_maxuh_in, &
-       beres_dp_desc_hd_in, &
-       beres_dp_desc_mfcc_in, &
-       beres_sh_desc_storm_shift_in, &
-       beres_sh_desc_k_in, &
-       beres_sh_desc_min_hdepth_in, &
-       beres_sh_desc_maxh_in, &
-       beres_sh_desc_maxuh_in, &
-       beres_sh_desc_hd_in, &
-       beres_sh_desc_mfcc_in, &
-       movmtn_desc_storm_shift_in, &
-       movmtn_desc_k_in, &
-       movmtn_desc_min_hdepth_in, &
-       movmtn_desc_maxh_in, &
-       movmtn_desc_maxuh_in, &
-       movmtn_desc_hd_in, &
-       movmtn_desc_uh_in, &
-       movmtn_desc_mfcc_in, &
-       cm_desc_ksrc_in, &
-       cm_desc_kfront_in, &
-       cm_desc_frontgfc_in, &
-       cm_desc_src_tau_in, &
-       cm_igw_desc_ksrc_in, &
-       cm_igw_desc_kfront_in, &
-       cm_igw_desc_frontgfc_in, &
-       cm_igw_desc_src_tau_in, &
        errmsg,  &
        errflg )
 
-    use gw_common,  only: gw_common_init
+    use gw_common,  only: gw_common_init, gw_prof
   !-----------------------------------------------------------------------
   ! Time independent initialization for multiple gravity wave
   ! parameterization.
@@ -390,7 +310,6 @@ contains
   logical, intent(in)             :: tau_0_ubc_in
   real(kind_phys), intent(in)     :: pref_edge_in(:)
   real(kind_phys), intent(in)     :: pref_mid_in(:)
-  real(kind_phys), intent(in)     :: gw_bot_taper_pres
   ! Beres (deep convection).
   real(kind_phys), intent(in)     :: effgw_beres_dp_in
   ! Beres (shallow convection).
@@ -443,6 +362,14 @@ contains
   ! Width of gaussian used to create frontogenesis tau profile [m s-1].
   real(kind_phys), intent(in)             :: front_gaussian_width_in
   real(kind_phys), intent(in)             :: alpha_gw_movmtn_in
+  logical, intent(in)                     :: use_gw_rdg_resid_in
+
+  real(kind_phys), intent(in)             :: effgw_rdg_resid_in
+  real(kind_phys), intent(in)             :: effgw_movmtn_pbl_in
+  integer, intent(in)                     :: movmtn_source_in
+  real(kind_phys), intent(in)             :: movmtn_psteer_in
+  real(kind_phys), intent(in)             :: movmtn_plaunch_in
+
   logical, intent(in)             ::  use_gw_oro_in
   logical, intent(in)             ::  use_gw_front_in
   logical, intent(in)             ::  use_gw_front_igw_in
@@ -456,63 +383,9 @@ contains
   logical, intent(in)             :: do_molec_diff_in
   real(kind_phys), intent(in)     :: wavelength_mid_in
   real(kind_phys), intent(in)     :: wavelength_long_in
-!!$  logical, intent(in)             :: gw_rdg_do_divstream
-!!$  real(kind_phys), intent(in)     ::  gw_rdg_C_BetaMax_DS
-!!$  real(kind_phys), intent(in)     ::  gw_rdg_C_GammaMax
-!!$  real(kind_phys), intent(in)     ::  gw_rdg_Frx0
-!!$  real(kind_phys), intent(in)     ::  gw_rdg_Frx1
-!!$  real(kind_phys), intent(in)     ::  gw_rdg_C_BetaMax_SM
-!!$  real(kind_phys), intent(in)     ::  gw_rdg_Fr_c
-!!$  logical, intent(in)             :: gw_rdg_do_smooth_regimes
-!!$  logical, intent(in)             :: gw_rdg_do_adjust_tauoro
-!!$  logical, intent(in)             :: gw_rdg_do_backward_compat
-!!$  real(kind_phys), intent(in)     ::  gw_rdg_orohmin
-!!$  real(kind_phys), intent(in)     ::  gw_rdg_orovmin
-!!$  real(kind_phys), intent(in)     ::  gw_rdg_orostratmin
-!!$  real(kind_phys), intent(in)     ::  gw_rdg_orom2min
-!!$  logical, intent(in)             ::  gw_rdg_do_vdiff
-!!$  real(kind_phys), intent(in)     ::  rdg_gbxar_in(:,:)
-!!$  real(kind_phys), intent(in)     ::  rdg_hwdth_in(:,:)
-!!$  real(kind_phys), intent(in)     ::  rdg_clngt_in(:,:)
-!!$  real(kind_phys), intent(in)     ::  rdg_mxdis_in(:,:)
-!!$  real(kind_phys), intent(in)     ::  rdg_anixy_in(:,:)
-!!$  real(kind_phys), intent(in)     ::  rdg_angll_in(:,:)
-!!$  real(kind_phys), intent(in)     ::  rdg_gbxarg_in(:,:)
-!!$  real(kind_phys), intent(in)     ::  rdg_hwdthg_in(:,:)
-!!$  real(kind_phys), intent(in)     ::  rdg_clngtg_in(:,:)
-!!$  real(kind_phys), intent(in)     ::  rdg_mxdisg_in(:,:)
-!!$  real(kind_phys), intent(in)     ::  rdg_anixyg_in(:,:)
-!!$  real(kind_phys), intent(in)     ::  rdg_angllg_in(:,:)
-  logical                         ::  beres_dp_desc_storm_shift_in
-  integer                         ::  beres_dp_desc_k_in
-  real(kind_phys), intent(in)     ::  beres_dp_desc_min_hdepth_in
-  integer                         ::  beres_dp_desc_maxh_in
-  integer                         ::  beres_dp_desc_maxuh_in
-  real(kind_phys), intent(in)     ::  beres_dp_desc_hd_in(:)
-  real(kind_phys), intent(in)     ::  beres_dp_desc_mfcc_in(:,:,:)
-  logical                         ::  beres_sh_desc_storm_shift_in
-  integer                         ::  beres_sh_desc_k_in
-  real(kind_phys), intent(in)     ::  beres_sh_desc_min_hdepth_in
-  integer                         ::  beres_sh_desc_maxh_in
-  integer                         ::  beres_sh_desc_maxuh_in
-  real(kind_phys), intent(in)     ::  beres_sh_desc_hd_in(:)
-  real(kind_phys), intent(in)     ::  beres_sh_desc_mfcc_in(:,:,:)
-  logical                         ::  movmtn_desc_storm_shift_in
-  integer                         ::  movmtn_desc_k_in
-  real(kind_phys), intent(in)     ::  movmtn_desc_min_hdepth_in
-  integer                         ::  movmtn_desc_maxh_in
-  integer                         ::  movmtn_desc_maxuh_in
-  real(kind_phys), intent(in)     ::  movmtn_desc_hd_in(:)
-  real(kind_phys), intent(in)     ::  movmtn_desc_uh_in(:)
-  real(kind_phys), intent(in)     ::  movmtn_desc_mfcc_in(:,:,:)
-  integer, intent(in)             ::  cm_desc_ksrc_in
-  integer, intent(in)             ::  cm_desc_kfront_in
-  real(kind_phys), intent(in)     ::  cm_desc_frontgfc_in
-  real(kind_phys), intent(in)     ::  cm_desc_src_tau_in(:)
-  integer, intent(in)             ::  cm_igw_desc_ksrc_in
-  integer, intent(in)             ::  cm_igw_desc_kfront_in
-  real(kind_phys), intent(in)     ::  cm_igw_desc_frontgfc_in
-  real(kind_phys), intent(in)     ::  cm_igw_desc_src_tau_in(:)
+  real(kind_phys), intent(in)     ::  movmtn_psteer_in
+  real(kind_phys), intent(in)     ::  movmtn_plaunch_in
+  integer, intent(in)             ::  movmtn_source_in
   character(len=512), intent(out) :: errmsg
   integer, intent(out)            :: errflg
 
@@ -583,11 +456,6 @@ contains
   errflg = 0
 
 
-  band_oro = GWBand(0, gw_dc_in, fcrit2_in, wavelength_mid_in)
-  band_mid = GWBand(pgwv_in, gw_dc_in, 1.0_kind_phys, wavelength_mid_in)
-  band_long = GWBand(pgwv_long_in, gw_dc_long_in, 1.0_kind_phys, wavelength_long_in)
-  band_movmtn = GWBand(0, gw_dc_in, 1.0_kind_phys, wavelength_mid_in)
-
   gravit  = gravit_in
   rair    = rair_in
   pi      = pi_in
@@ -637,6 +505,14 @@ contains
   gw_top_taper =   gw_top_taper_in
   front_gaussian_width =   front_gaussian_width_in
   alpha_gw_movmtn =   alpha_gw_movmtn_in
+
+  use_gw_rdg_resid = use_gw_rdg_resid_in
+  effgw_rdg_resid = effgw_rdg_resid_in
+  effgw_movmtn_pbl = effgw_movmtn_pbl_in
+  movmtn_source = movmtn_source_in
+  movmtn_psteer = movmtn_psteer_in
+  movmtn_plaunch = movmtn_plaunch_in
+
   use_gw_oro =   use_gw_oro_in
   use_gw_front =   use_gw_front_in
   use_gw_front_igw =   use_gw_front_igw_in
@@ -648,84 +524,11 @@ contains
   wavelength_mid = wavelength_mid_in
   wavelength_long = wavelength_long_in
   ktop = ktop_in
-  if (use_gw_convect_dp) then
-  beres_dp_desc_storm_shift = beres_dp_desc_storm_shift_in
-  beres_dp_desc_k = beres_dp_desc_k_in
-  beres_dp_desc_min_hdepth = beres_dp_desc_min_hdepth_in
-  beres_dp_desc_maxh = beres_dp_desc_maxh_in
-  beres_dp_desc_maxuh = beres_dp_desc_maxuh_in
-  allocate(beres_dp_desc_hd(beres_dp_desc_maxh), stat=stat)
-  call handle_err( stat, errflg,sub//': Allocate of beres_dp_desc_hd failed', errmsg )
-  beres_dp_desc_hd = beres_dp_desc_hd_in
-  allocate(beres_dp_desc_mfcc(beres_dp_desc_maxh,-beres_dp_desc_maxuh:beres_dp_desc_maxuh,&
-       -band_mid%ngwv:band_mid%ngwv), stat=stat)
-  call handle_err( stat, errflg,sub//': Allocate of beres_dp_desc_mfcc failed', errmsg )
-  beres_dp_desc_mfcc = beres_dp_desc_mfcc_in
-  end if
-  if (use_gw_convect_sh) then
-  beres_sh_desc_storm_shift = beres_sh_desc_storm_shift_in
-  beres_sh_desc_k = beres_sh_desc_k_in
-  beres_sh_desc_min_hdepth = beres_sh_desc_min_hdepth_in
-  beres_sh_desc_maxh = beres_sh_desc_maxh_in
-  beres_sh_desc_maxuh = beres_sh_desc_maxuh_in
-  allocate(beres_sh_desc_hd(beres_sh_desc_maxh))
-  call handle_err( stat, errflg,sub//': Allocate of beres_sh_desc_hd failed', errmsg )
-  beres_sh_desc_hd = beres_sh_desc_hd_in
-  allocate(beres_sh_desc_mfcc(beres_sh_desc_maxh,-beres_sh_desc_maxuh:beres_sh_desc_maxuh,&
-       -band_mid%ngwv:band_mid%ngwv), stat=stat)
-  call handle_err( stat, errflg,sub//': Allocate of beres_dp_desc_mfcc failed', errmsg )
-  beres_sh_desc_mfcc = beres_sh_desc_mfcc_in
-  end if
-  if (use_gw_movmtn_pbl) then
-  movmtn_desc_storm_shift = movmtn_desc_storm_shift_in
-  movmtn_desc_k = movmtn_desc_k_in
-  movmtn_desc_min_hdepth = movmtn_desc_min_hdepth_in
-  movmtn_desc_maxh = movmtn_desc_maxh_in
-  movmtn_desc_maxuh = movmtn_desc_maxuh_in
-  allocate(movmtn_desc_hd(movmtn_desc_maxh))
-  call handle_err( stat, errflg,sub//': Allocate of movmtn_desc_maxh failed', errmsg )
-  movmtn_desc_hd = movmtn_desc_hd_in
-  allocate(movmtn_desc_uh(movmtn_desc_maxuh))
-  call handle_err( stat, errflg,sub//': Allocate of movmtn_desc_maxuh failed', errmsg )
-  movmtn_desc_uh = movmtn_desc_uh_in
-  allocate(movmtn_desc_mfcc(movmtn_desc_maxh,-movmtn_desc_maxuh:movmtn_desc_maxuh,&
-       -band_movmtn%ngwv:band_movmtn%ngwv), stat=stat)
-  call handle_err( stat, errflg,sub//': Allocate of movmtn_desc_mfcc failed', errmsg )
-  movmtn_desc_mfcc = movmtn_desc_mfcc_in
-  end if
-  if (use_gw_front) then
-  cm_desc_ksrc = cm_desc_ksrc_in
-  cm_desc_kfront = cm_desc_kfront_in
-  cm_desc_frontgfc = cm_desc_frontgfc_in
-  allocate(cm_desc_src_tau(-band_mid%ngwv:band_mid%ngwv))
-  call handle_err( stat, errflg,sub//': Allocate of cm_desc_src_tau failed', errmsg )
-  cm_desc_src_tau = cm_desc_src_tau_in
-  end if
-  if (use_gw_front_igw) then
-  cm_igw_desc_ksrc = cm_igw_desc_ksrc_in
-  cm_igw_desc_kfront = cm_igw_desc_kfront_in
-  cm_igw_desc_frontgfc = cm_igw_desc_frontgfc_in
-  allocate(cm_igw_desc_src_tau(-band_long%ngwv:band_long%ngwv))
-  call handle_err( stat, errflg,sub//': Allocate of cm_igw_desc_src_tau failed', errmsg )
-  cm_igw_desc_src_tau = cm_igw_desc_src_tau_in
-  end if
-!!$  do_divstream = gw_rdg_do_divstream
-!!$  C_BetaMax_DS = gw_rdg_C_BetaMax_DS
-!!$  C_GammaMax = gw_rdg_C_GammaMax
-!!$  Frx0 = gw_rdg_Frx0
-!!$  Frx1 = gw_rdg_Frx1
-!!$  C_BetaMax_SM = gw_rdg_C_BetaMax_SM
-!!$  Fr_c = gw_rdg_Fr_c
-!!$  do_smooth_regimes = gw_rdg_do_smooth_regimes
-!!$  do_adjust_tauoro = gw_rdg_do_adjust_tauoro
-!!$  do_backward_compat = gw_rdg_do_backward_compat
-!!$  orohmin = gw_rdg_orohmin
-!!$  orovmin = gw_rdg_orovmin
-!!$  orostratmin = gw_rdg_orostratmin
-!!$  orom2min = gw_rdg_orom2min
-!!$  do_vdiff = gw_rdg_do_vdiff
 
-
+  band_oro = GWBand(0, gw_dc, 1.0_r8, wavelength_mid)
+  band_mid = GWBand(pgwv, gw_dc, 1.0_r8, wavelength_mid)
+  band_long = GWBand(pgwv_long, gw_dc_long, 1.0_r8, wavelength_long)
+  band_movmtn = GWBand(0, gw_dc, 1.0_r8, wavelength_mid)
 
   if (masterproc) then
      write(iulog,*) ' '
@@ -769,6 +572,9 @@ contains
      end do
   end if
 
+
+
+
   if (masterproc) then
      write(iulog,*) 'KTOP        =',ktop
   end if
@@ -780,12 +586,18 @@ contains
 !!$  call shr_assert(trim(errstring) == "", "gw_common_init: "//errstring// &
 !!$       errorMsg(__FILE__, __LINE__))
 
+  ! Initialize subordinate modules.
+  call gw_movmtn_init(pver,&
+     gw_dc, wavelength_mid, &
+     pref_edge, movmtn_psteer, movmtn_plaunch, source_in, masterproc, iulog, errmsg, errflg )
+
+
+
   if (gw_top_taper) then
      allocate(vramp(pver))
-     call handle_err( stat, errflg,sub//': Allocate of vramp failed', errmsg )
      vramp(:) = 1._kind_phys
      topndx = 1
-     botndx = press_lim_idx( gw_bot_taper_pres, pref_mid, top=.true. )
+     botndx = press_lim_idx( 0.6E-02_kind_phys, top=.true. )
      if (botndx>1) then
         do k=botndx,topndx,-1
            vramp(k) = vramp(k+1)/(pref_edge(k+1)/pref_edge(k))
@@ -861,6 +673,7 @@ subroutine gw_drag_run( &
      state_u, &
      state_v, &
      state_q, &
+     vorticity, &
      sgh, &
      kvtt, &
      ttend_dp, &
@@ -870,24 +683,13 @@ subroutine gw_drag_run( &
      wpthlp_clubb_gw, &
      upwp_clubb_gw, &
      vpwp_clubb_gw, &
-     rdg_gbxar,  &
-     rdg_hwdth,  &
-     rdg_clngt,  &
-     rdg_mxdis,  &
-     rdg_anixy,  &
-     rdg_angll,  &
-     rdg_gbxarg,  &
-     rdg_hwdthg,  &
-     rdg_clngtg,  &
-     rdg_mxdisg,  &
-     rdg_anixyg,  &
-     rdg_angllg,  &
      s_tend, &
      q_tend, &
      u_tend, &
      v_tend, &
      scheme_name, &
      nbot_molec, &
+     egwdffi_tot, &
      flx_heat, &
      errmsg, errflg)
   !-----------------------------------------------------------------------
@@ -927,6 +729,7 @@ subroutine gw_drag_run( &
   real(kind_phys), intent(in) :: state_u(:,:)   ! meridional wind
   real(kind_phys), intent(in) :: state_v(:,:)   ! zonal wind
   real(kind_phys), intent(in) :: state_q(:,:,:) ! constituent array
+  real(kind_phys), intent(in) :: vorticity(:,:) ! vorticity
   real(kind_phys), intent(in) :: sgh(:)         !
   real(kind_phys), intent(in) :: kvtt(:,:)       !
   real(kind_phys), intent(in) :: ttend_dp(:,:)  ! Temperature change due to deep convection.
@@ -936,18 +739,6 @@ subroutine gw_drag_run( &
   real(kind_phys), intent(in) :: wpthlp_clubb_gw(:,:)
   real(kind_phys), intent(in) :: upwp_clubb_gw(:,:)
   real(kind_phys), intent(in) :: vpwp_clubb_gw(:,:)
-  real(kind_phys), intent(in), TARGET :: rdg_gbxar(:)
-  real(kind_phys), intent(in), TARGET :: rdg_hwdth(:,:)
-  real(kind_phys), intent(in), TARGET :: rdg_clngt(:,:)
-  real(kind_phys), intent(inout), TARGET :: rdg_mxdis(:,:)
-  real(kind_phys), intent(in), TARGET :: rdg_anixy(:,:)
-  real(kind_phys), intent(in), TARGET :: rdg_angll(:,:)
-  real(kind_phys), intent(in), TARGET :: rdg_gbxarg(:)
-  real(kind_phys), intent(in), TARGET :: rdg_hwdthg(:,:)
-  real(kind_phys), intent(in), TARGET :: rdg_clngtg(:,:)
-  real(kind_phys), intent(inout), TARGET :: rdg_mxdisg(:,:)
-  real(kind_phys), intent(in), TARGET :: rdg_anixyg(:,:)
-  real(kind_phys), intent(in), TARGET :: rdg_angllg(:,:)
   real(kind_phys), intent(inout):: s_tend(:,:)   ! dry air enthalpy tendency
   real(kind_phys), intent(inout):: q_tend(:,:,:)
   real(kind_phys), intent(inout):: u_tend(:,:)
@@ -955,7 +746,9 @@ subroutine gw_drag_run( &
   character(len=64),  intent(out) :: scheme_name
   integer, intent(in)             :: nbot_molec
   ! Parameterization net tendencies.
-  real(kind_phys), intent(inout) :: flx_heat(:)
+  ! sum from the two types of spectral GW
+  real(kind_phys), intent(out) :: egwdffi_tot(:,:)
+  real(kind_phys), intent(out) :: flx_heat(:)
   character(len=512), intent(out) :: errmsg
   integer,            intent(out) :: errflg
 
@@ -1008,10 +801,6 @@ subroutine gw_drag_run( &
 
   ! Adjustment for inertial gravity waves.
   real(kind_phys), allocatable :: ro_adjust(:,:,:)
-
-!!$  ! pbuf fields
-!!$  ! Molecular diffusivity
-!!$  real(kind_phys) :: kvtt(ncol,pver+1)
 
   ! Frontogenesis
   real(kind_phys), pointer :: frontgf(:,:)
@@ -1066,8 +855,6 @@ subroutine gw_drag_run( &
 
   ! effective gw diffusivity at interfaces needed for output
   real(kind_phys) :: egwdffi(ncol,pver+1)
-  ! sum from the two types of spectral GW
-  real(kind_phys) :: egwdffi_tot(ncol,pver+1)
 
   ! Momentum fluxes used by fixer.
   real(kind_phys) :: um_flux(ncol), vm_flux(ncol)
@@ -1086,6 +873,34 @@ subroutine gw_drag_run( &
   ! Profiles of background state variables
   call gw_prof(ncol, p, cpair, state_t, rhoi, nm, ni)
 
+  if (do_molec_diff) then
+     !--------------------------------------------------------
+     ! Initialize and calculate local molecular diffusivity
+     !--------------------------------------------------------
+
+!jt     kvt_in passed in here as kvtt
+!!$     call pbuf_get_field(pbuf, kvt_idx, kvt_in)  ! kvt_in(1:pcols,1:pver+1)
+
+!!$     ! Set kvtt from pbuf field; kvtt still needs a factor of 1/cpairv.
+!!$     kvtt = kvt_in(:ncol,:)
+
+     ! Use linear extrapolation of cpairv to top interface.
+     kvtt(:,1) = kvtt(:,1) / &
+          (1.5_r8*cpairv(:ncol,1,lchnk) - &
+          0.5_r8*cpairv(:ncol,2,lchnk))
+
+     ! Interpolate cpairv to other interfaces.
+     do k = 2, nbot_molec
+        kvtt(:,k) = kvtt(:,k) / &
+             (cpairv(:ncol,k+1,lchnk)+cpairv(:ncol,k,lchnk)) * 2._r8
+     enddo
+
+  else
+
+     kvtt = 0._r8
+
+  end if
+
   if (use_gw_front_igw) then
      u_coriolis = coriolis_speed(band_long, lat(:ncol))
   end if
@@ -1099,22 +914,16 @@ subroutine gw_drag_run( &
      !Convective moving mountain gravity waves (Beres scheme).
      !------------------------------------------------------------------
      flx_heat_curr = flx_heat
-     effgw=1.0_kind_phys
+     effgw=effgw_movmtn_pbl
 
      call gw_movmtn_run(ncol, &
           band_movmtn , &
-          movmtn_desc_storm_shift, &
-          movmtn_desc_k, &
-          movmtn_desc_min_hdepth, &
-          movmtn_desc_maxh, &
-          movmtn_desc_maxuh, &
-          movmtn_desc_hd, &
-          movmtn_desc_uh, &
-          movmtn_desc_mfcc, &
+          movmtn_desc, &
           state_t, pcnst, &
           state_u, state_v, p, ttend_dp, ttend_clubb, &
-          upwp_clubb_gw, vpwp_clubb_gw, &
-          zm, alpha_gw_movmtn, src_level, tend_level, &
+          upwp_clubb_gw, vpwp_clubb_gw, vorticity, &
+          zm, alpha_gw_movmtn, &
+          src_level, tend_level, &
           ubm, ubi, xv, yv, hdepth,dt, &
           vramp, pint, piln, rhoi, nm,   ni, &
           effgw,  kvtt, state_q,  dse, utgw,  vtgw, &
@@ -1166,14 +975,8 @@ subroutine gw_drag_run( &
      end where
 
      ! Determine wave sources for Beres deep scheme
-     call gw_beres_src(ncol, band_mid, &
-          beres_dp_desc_storm_shift, &
-          beres_dp_desc_k, &
-          beres_dp_desc_min_hdepth, &
-          beres_dp_desc_maxh, &
-          beres_dp_desc_maxuh, &
-          beres_dp_desc_hd, &
-          beres_dp_desc_mfcc, &
+     call gw_beres_src(ncol, &
+          beres_dp_desc, &
           state_u, state_v, ttend_dp(:ncol,:), zm, src_level, tend_level, tau, &
           ubm, ubi, xv, yv, phase_speeds, hdepth, maxq0)
 
@@ -1267,14 +1070,8 @@ subroutine gw_drag_run( &
      end where
 
      ! Determine wave sources for Beres shallow scheme
-     call gw_beres_src(ncol, band_mid, &
-          beres_sh_desc_storm_shift, &
-          beres_sh_desc_k, &
-          beres_sh_desc_min_hdepth, &
-          beres_sh_desc_maxh, &
-          beres_sh_desc_maxuh, &
-          beres_sh_desc_hd, &
-          beres_sh_desc_mfcc, &
+     call gw_beres_src(ncol, &
+          beres_sh_desc, &
           state_u, state_v, ttend_sh(:ncol,:), zm, src_level, tend_level, tau, &
           ubm, ubi, xv, yv, phase_speeds, hdepth, maxq0)
 
@@ -1353,10 +1150,7 @@ subroutine gw_drag_run( &
      if (gw_polar_taper) effgw = effgw * cos(lat(:ncol))
 
      call gw_cm_src(ncol, band_mid, &
-          cm_desc_ksrc, &
-          cm_desc_kfront, &
-          cm_desc_frontgfc, &
-          cm_desc_src_tau, &
+          cm_desc, &
           state_u, state_v, frontgf(:ncol,:), &
           src_level, tend_level, tau, ubm, ubi, xv, yv, phase_speeds)
 
@@ -1444,10 +1238,7 @@ subroutine gw_drag_run( &
      end if
 
      call gw_cm_src(ncol, band_long, &
-          cm_igw_desc_ksrc, &
-          cm_igw_desc_kfront, &
-          cm_igw_desc_frontgfc, &
-          cm_igw_desc_src_tau, &
+          cm_igw_desc, &
           state_u, state_v, frontgf(:ncol,:), &
           src_level, tend_level, tau, ubm, ubi, xv, yv, phase_speeds)
 
