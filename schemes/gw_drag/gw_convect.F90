@@ -6,6 +6,7 @@ module gw_convect
 !
 
 use ccpp_kinds, only:  kind_phys
+use gw_common,      only: GWBand
 
 implicit none
 private
@@ -50,7 +51,8 @@ real(kind_phys), allocatable :: phase_speeds(:,:)
 contains
 
 !==========================================================================
-subroutine gw_beres_init((file_path_sh, file_path_dp, pref_edge, gw_dc, wavelength, pgwv, use_gw_convect_dp,use_gw_convect_sh, masterproc, iulog, errmsg, errflg )
+subroutine gw_beres_init(file_path_sh, file_path_dp, pref_edge, gw_dc, wavelength, pgwv, &
+       use_gw_convect_dp,use_gw_convect_sh, masterproc, iulog, errmsg, errflg )
   use ccpp_io_reader, only: abstract_netcdf_reader_t, create_netcdf_reader_t
 
   character(len=*), intent(in) :: file_path_sh, file_path_dp
@@ -159,10 +161,10 @@ subroutine gw_beres_init((file_path_sh, file_path_dp, pref_edge, gw_dc, waveleng
         effgw_dp = 0._kind_phys
         effgw_sh = 0._kind_phys
      end where
-
-   contains
-     subroutine gw_init_beres_desc(file_path, band, desc)
-       character(len=*), intent(in) :: file_path,
+  end if
+  contains
+    subroutine gw_init_beres_desc(file_path, band, desc)
+       character(len=*), intent(in) :: file_path
        type(GWBand)                 :: band
        type(BeresSourceDesc)        :: desc
 
@@ -255,7 +257,6 @@ subroutine gw_beres_init((file_path_sh, file_path_dp, pref_edge, gw_dc, waveleng
        endif
 
      end subroutine gw_init_beres_desc
-  end if
 end subroutine gw_beres_init
 !!$!==========================================================================
 !!$subroutine gw_beres_run(ncol, band, desc, u, v, &

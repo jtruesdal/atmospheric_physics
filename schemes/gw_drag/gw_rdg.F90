@@ -10,7 +10,7 @@ use ccpp_kinds, only:  kind_phys
 use coords_1d, only: Coords1D
 !!$use spmd_utils,only: masterproc
 !!$use cam_abortutils, only: endrun
-
+use gw_drag,   only: effgw_rdg_beta
 
 implicit none
 private

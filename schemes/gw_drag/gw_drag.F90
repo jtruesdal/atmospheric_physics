@@ -385,7 +385,7 @@ contains
   real(kind_phys), intent(in)     :: wavelength_long_in
   real(kind_phys), intent(in)     ::  movmtn_psteer_in
   real(kind_phys), intent(in)     ::  movmtn_plaunch_in
-  integer, intent(in)             ::  movmtn_source_in
+
   character(len=512), intent(out) :: errmsg
   integer, intent(out)            :: errflg
 
@@ -459,7 +459,7 @@ contains
   gravit  = gravit_in
   rair    = rair_in
   pi      = pi_in
-  allocate(pref_edge(pver))
+  allocate(pref_edge(pver+1))
   pref_edge = pref_edge_in
   allocate(pref_mid(pver))
   pref_mid  = pref_mid_in
@@ -525,10 +525,10 @@ contains
   wavelength_long = wavelength_long_in
   ktop = ktop_in
 
-  band_oro = GWBand(0, gw_dc, 1.0_r8, wavelength_mid)
-  band_mid = GWBand(pgwv, gw_dc, 1.0_r8, wavelength_mid)
-  band_long = GWBand(pgwv_long, gw_dc_long, 1.0_r8, wavelength_long)
-  band_movmtn = GWBand(0, gw_dc, 1.0_r8, wavelength_mid)
+  band_oro = GWBand(0, gw_dc, 1.0_kind_phys, wavelength_mid)
+  band_mid = GWBand(pgwv, gw_dc, 1.0_kind_phys, wavelength_mid)
+  band_long = GWBand(pgwv_long, gw_dc_long, 1.0_kind_phys, wavelength_long)
+  band_movmtn = GWBand(0, gw_dc, 1.0_kind_phys, wavelength_mid)
 
   if (masterproc) then
      write(iulog,*) ' '
@@ -886,18 +886,18 @@ subroutine gw_drag_run( &
 
      ! Use linear extrapolation of cpairv to top interface.
      kvtt(:,1) = kvtt(:,1) / &
-          (1.5_r8*cpairv(:ncol,1,lchnk) - &
-          0.5_r8*cpairv(:ncol,2,lchnk))
+          (1.5_kind_phys*cpairv(:ncol,1,lchnk) - &
+          0.5_kind_phys*cpairv(:ncol,2,lchnk))
 
      ! Interpolate cpairv to other interfaces.
      do k = 2, nbot_molec
         kvtt(:,k) = kvtt(:,k) / &
-             (cpairv(:ncol,k+1,lchnk)+cpairv(:ncol,k,lchnk)) * 2._r8
+             (cpairv(:ncol,k+1,lchnk)+cpairv(:ncol,k,lchnk)) * 2._kind_phys
      enddo
 
   else
 
-     kvtt = 0._r8
+     kvtt = 0._kind_phys
 
   end if
 
@@ -1987,12 +1987,10 @@ subroutine gw_spec_outflds(prefix, ncol, pver, band, phase_speeds, u, v, xv, yv,
 !!$  ! Output temperature tendencies due to diffusion and from kinetic energy.
 !!$  call outfld(trim(prefix)//'TTGWSDF', dttdf / cpair, ncol, lchnk)
 !!$  call outfld(trim(prefix)//'TTGWSKE', dttke / cpair, ncol, lchnk)
-
-
   ! Output tau broken down into zonal and meridional components.
 
-  taux = 0._kind_phys
-  tauy = 0._kind_phys
+taux = 0._kind_phys
+tauy = 0._kind_phys
 
   ! Project phase_speeds, and convert each component to a wavenumber index.
   ! These are mappings from the wavenumber index of tau to those of taux
@@ -2022,14 +2020,14 @@ subroutine gw_spec_outflds(prefix, ncol, pver, band, phase_speeds, u, v, xv, yv,
      dumc1x = tau_fld_name(l, prefix, x_not_y=.true.)
      dumc1y = tau_fld_name(l, prefix, x_not_y=.false.)
 
-!!$     call outfld(dumc1x,dummyx,ncol,lchnk)
-!!$     call outfld(dumc1y,dummyy,ncol,lchnk)
+     call outfld(dumc1x,dummyx,ncol,lchnk)
+     call outfld(dumc1y,dummyy,ncol,lchnk)
 
   enddo
 
 
   ! Output momentum flux in each cardinal direction.
-  mf = 0._kind_phys
+mf = 0._kind_phys
 
   do k = 1, pver
 
