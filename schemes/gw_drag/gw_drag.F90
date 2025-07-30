@@ -18,10 +18,8 @@ module gw_drag
 !
 !--------------------------------------------------------------------------
   use ccpp_kinds, only:  kind_phys
-  use gw_common,      only: GWBand,handle_err
-  use gw_convect,     only: BeresSourceDesc
-  use gw_movmtn,      only: MovMtnSourceDesc
-  use gw_front,       only: CMSourceDesc
+  use gw_common,  only: GWBand,handle_err
+  use gw_rdg,     only: gw_rdg_do_vdiff
   use interpolate_data, only: lininterp
 
   implicit none
@@ -64,6 +62,7 @@ module gw_drag
   ! fcrit2 for the mid-scale waves has been made a namelist variable to
   ! facilitate backwards compatibility with the CAM3 version of this
   ! parameterization.  In CAM3, fcrit2=0.5.
+  real(kind_phys)                      :: rearth   ! earth radius
   real(kind_phys)                      :: fcrit2   ! critical froude number squared
 
   ! Ridge scheme.
@@ -81,7 +80,8 @@ module gw_drag
   real(kind_phys)                      :: rdg_gamma_cd_llb
   logical                              :: trpd_leewv_rdg_gamma
 
-  character(len=512)                   :: bnd_rdggm ! full pathname for meso-Gamma ridge dataset
+  character(len=256)                   :: bnd_rdggm ! full pathname for meso-Gamma ridge dataset
+  character(len=256)                   :: bnd_topo  ! full pathname for topo dataset
   ! Whether or not to limit tau *before* applying any efficiency factors.
   logical                              :: gw_limit_tau_without_eff = .false.
   logical                              :: gw_lndscl_sgh = .true. ! scale SGH by land frac
@@ -145,6 +145,7 @@ module gw_drag
   logical         ::  use_simple_phys
   logical         ::  use_gw_movmtn_pbl
   logical         ::  do_molec_diff
+  integer         ::  nbot_molec
   ! Horzontal wavelengths [m].
   real(kind_phys) :: wavelength_mid
   real(kind_phys) :: wavelength_long
@@ -195,15 +196,7 @@ module gw_drag
   ! namelist
   logical          :: history_amwg                   ! output the variables used by the AMWG diag package
 
-
-  real(kind_phys), allocatable, TARGET :: vramp(:)
-
-  real(kind_phys) :: C_BetaMax_DS, C_GammaMax, &
-              Frx0, Frx1, C_BetaMax_SM, Fr_c, &
-              orohmin, orovmin, orostratmin, orom2min
-  logical ::  do_divstream, do_smooth_regimes, do_adjust_tauoro, &
-              do_backward_compat,do_vdiff
-
+  real(kind_phys), pointer :: vramp(:)=>null()
 
 !==========================================================================
 contains
@@ -220,49 +213,49 @@ contains
        rair_in,  &
        pi_in,  &
        fcrit2_in,  &
-
+       rearth_in,  &
        pref_edge_in,  &
        pref_mid_in,  &
-
-       pgwv_in,  &
-       gw_dc_in,  &
-       pgwv_long_in,  &
-       gw_dc_long_in,  &
-       tau_0_ubc_in,  &
-       effgw_beres_dp_in,  &
-       effgw_beres_sh_in,  &
-       effgw_cm_in,  &
-       effgw_cm_igw_in,  &
-       effgw_oro_in,  &
-       frontgfc_in,  &
-       gw_drag_file_in,  &
-       gw_drag_file_sh_in,  &
-       gw_drag_file_mm_in,  &
-       taubgnd_in,  &
-       taubgnd_igw_in,  &
-       gw_polar_taper_in,  &
-       use_gw_rdg_beta_in,  &
-       n_rdg_beta_in,  &
-       effgw_rdg_beta_in,  &
-       effgw_rdg_beta_max_in,  &
-       rdg_beta_cd_llb_in,  &
-       trpd_leewv_rdg_beta_in,  &
-       use_gw_rdg_gamma_in,  &
-       n_rdg_gamma_in,  &
-       effgw_rdg_gamma_in,  &
-       effgw_rdg_gamma_max_in,  &
-       rdg_gamma_cd_llb_in,  &
-       trpd_leewv_rdg_gamma_in,  &
-       bnd_rdggm_in,  &
-       gw_oro_south_fac_in,  &
-       gw_limit_tau_without_eff_in,  &
-       gw_lndscl_sgh_in,  &
-       gw_prndl_in,  &
-       gw_apply_tndmax_in,  &
-       gw_qbo_hdepth_scaling_in,  &
-       gw_top_taper_in,  &
-       front_gaussian_width_in,  &
-       alpha_gw_movmtn_in,  &
+       pgwv_nl,  &
+       gw_dc_nl,  &
+       pgwv_long_nl,  &
+       gw_dc_long_nl,  &
+       tau_0_ubc_nl,  &
+       effgw_beres_dp_nl,  &
+       effgw_beres_sh_nl,  &
+       effgw_cm_nl,  &
+       effgw_cm_igw_nl,  &
+       effgw_oro_nl,  &
+       frontgfc_nl,  &
+       gw_drag_file_nl,  &
+       gw_drag_file_sh_nl,  &
+       gw_drag_file_mm_nl,  &
+       taubgnd_nl,  &
+       taubgnd_igw_nl,  &
+       gw_polar_taper_nl,  &
+       use_gw_rdg_beta_nl,  &
+       n_rdg_beta_nl,  &
+       effgw_rdg_beta_nl,  &
+       effgw_rdg_beta_max_nl,  &
+       rdg_beta_cd_llb_nl,  &
+       trpd_leewv_rdg_beta_nl,  &
+       use_gw_rdg_gamma_nl,  &
+       n_rdg_gamma_nl,  &
+       effgw_rdg_gamma_nl,  &
+       effgw_rdg_gamma_max_nl,  &
+       rdg_gamma_cd_llb_nl,  &
+       trpd_leewv_rdg_gamma_nl,  &
+       bnd_topo_nl,  &
+       bnd_rdggm_nl,  &
+       gw_oro_south_fac_nl,  &
+       gw_limit_tau_without_eff_nl,  &
+       gw_lndscl_sgh_nl,  &
+       gw_prndl_nl,  &
+       gw_apply_tndmax_nl,  &
+       gw_qbo_hdepth_scaling_nl,  &
+       gw_top_taper_nl,  &
+       front_gaussian_width_nl,  &
+       alpha_gw_movmtn_nl,  &
        use_gw_rdg_resid_in, &
 
        effgw_rdg_resid_in, &
@@ -278,17 +271,24 @@ contains
        use_gw_convect_sh_in,  &
        use_simple_phys_in,  &
        use_gw_movmtn_pbl_in,  &
-
        do_molec_diff_in,  &
        nbot_molec_in, &
-       press_lim_idx_in, &
-
        wavelength_mid_in,  &
        wavelength_long_in,  &
        errmsg,  &
        errflg )
 
     use gw_common,  only: gw_common_init, gw_prof
+    use gw_rdg,  only: gw_rdg_do_vdiff, do_divstream, &
+         C_BetaMax_DS, C_GammaMax, &
+         Frx0, Frx1, C_BetaMax_SM, Fr_c, &
+         do_smooth_regimes, do_adjust_tauoro, &
+         do_backward_compat, orohmin, orovmin, &
+         orostratmin, orom2min, gw_rdg_do_vdiff, &
+         bnd_rdg_file, bnd_topo_file, prdg, gw_rdg_init
+
+    use gw_front,  only: gw_front_init
+    use gw_movmtn,  only: gw_movmtn_init
   !-----------------------------------------------------------------------
   ! Time independent initialization for multiple gravity wave
   ! parameterization.
@@ -299,69 +299,71 @@ contains
   real(kind_phys), intent(in)     :: rair_in            ! Dry air gas constant     (J K-1 kg-1)
   real(kind_phys), intent(in)     :: pi_in
   ! Maximum wave number and width of spectrum bins.
-  integer, intent(in)             :: pgwv_in
-  real(kind_phys), intent(in)     :: gw_dc_in
-  integer, intent(in)             :: pgwv_long_in
-  real(kind_phys), intent(in)     :: gw_dc_long_in
+  integer, intent(in)             :: pgwv_nl
+  real(kind_phys), intent(in)     :: gw_dc_nl
+  integer, intent(in)             :: pgwv_long_nl
+  real(kind_phys), intent(in)     :: gw_dc_long_nl
   ! Whether or not to enforce an upper boundary condition of tau = 0.
   ! (Like many variables, this is only here to hold the value between
   ! the readnl phase and the init phase of the CAM physics; only gw_common
   ! should actually use it.)
-  logical, intent(in)             :: tau_0_ubc_in
+  logical, intent(in)             :: tau_0_ubc_nl
   real(kind_phys), intent(in)     :: pref_edge_in(:)
   real(kind_phys), intent(in)     :: pref_mid_in(:)
   ! Beres (deep convection).
-  real(kind_phys), intent(in)     :: effgw_beres_dp_in
+  real(kind_phys), intent(in)     :: effgw_beres_dp_nl
   ! Beres (shallow convection).
-  real(kind_phys), intent(in)     :: effgw_beres_sh_in
+  real(kind_phys), intent(in)     :: effgw_beres_sh_nl
   ! C&M scheme.
-  real(kind_phys), intent(in)     :: effgw_cm_in
+  real(kind_phys), intent(in)     :: effgw_cm_nl
   ! C&M scheme (inertial waves).
-  real(kind_phys), intent(in)     :: effgw_cm_igw_in
+  real(kind_phys), intent(in)     :: effgw_cm_igw_nl
   ! Orography.
-  real(kind_phys), intent(in)     :: effgw_oro_in
+  real(kind_phys), intent(in)     :: effgw_oro_nl
   ! fcrit2 for the mid-scale waves has been made a namelist variable to
   ! facilitate backwards compatibility with the CAM3 version of this
   ! parameterization.  In CAM3, fcrit2=0.5.
   real(kind_phys), intent(in)             :: fcrit2_in   ! critical froude number squared
+  real(kind_phys), intent(in)             :: rearth_in   ! earth radius
   ! Frontogenesis function critical threshold.
-  real(kind_phys), intent(in)             :: frontgfc_in
+  real(kind_phys), intent(in)             :: frontgfc_nl
   ! Files to read Beres source spectra from.
-  character(len=256), intent(in)             :: gw_drag_file_in
-  character(len=256), intent(in)             :: gw_drag_file_sh_in
-  character(len=256), intent(in)             :: gw_drag_file_mm_in
+  character(len=256), intent(in)             :: gw_drag_file_nl
+  character(len=256), intent(in)             :: gw_drag_file_sh_nl
+  character(len=256), intent(in)             :: gw_drag_file_mm_nl
   ! Background stress source strengths.
-  real(kind_phys), intent(in)             :: taubgnd_in
-  real(kind_phys), intent(in)             :: taubgnd_igw_in
+  real(kind_phys), intent(in)             :: taubgnd_nl
+  real(kind_phys), intent(in)             :: taubgnd_igw_nl
   ! Whether or not to use a polar taper for frontally generated waves.
-  logical, intent(in)             :: gw_polar_taper_in
+  logical, intent(in)             :: gw_polar_taper_nl
   ! Ridge scheme.
-  logical, intent(in)              :: use_gw_rdg_beta_in
-  integer , intent(in)             :: n_rdg_beta_in
-  real(kind_phys), intent(in)             :: effgw_rdg_beta_in
-  real(kind_phys), intent(in)             :: effgw_rdg_beta_max_in
-  real(kind_phys), intent(in)             :: rdg_beta_cd_llb_in  ! Low-level obstacle drag coefficient Ridge scheme.
-  logical , intent(in)             :: trpd_leewv_rdg_beta_in
-  logical , intent(in)             :: use_gw_rdg_gamma_in
-  integer , intent(in)             :: n_rdg_gamma_in
-  real(kind_phys), intent(in)             :: effgw_rdg_gamma_in
-  real(kind_phys), intent(in)             :: effgw_rdg_gamma_max_in
-  real(kind_phys), intent(in)             :: rdg_gamma_cd_llb_in
-  logical , intent(in)             :: trpd_leewv_rdg_gamma_in
-  character(len=256), intent(in)    :: bnd_rdggm_in ! full pathname for meso-Gamma ridge dataset
+  logical, intent(in)              :: use_gw_rdg_beta_nl
+  integer , intent(in)             :: n_rdg_beta_nl
+  real(kind_phys), intent(in)             :: effgw_rdg_beta_nl
+  real(kind_phys), intent(in)             :: effgw_rdg_beta_max_nl
+  real(kind_phys), intent(in)             :: rdg_beta_cd_llb_nl  ! Low-level obstacle drag coefficient Ridge scheme.
+  logical , intent(in)             :: trpd_leewv_rdg_beta_nl
+  logical , intent(in)             :: use_gw_rdg_gamma_nl
+  integer , intent(in)             :: n_rdg_gamma_nl
+  real(kind_phys), intent(in)             :: effgw_rdg_gamma_nl
+  real(kind_phys), intent(in)             :: effgw_rdg_gamma_max_nl
+  real(kind_phys), intent(in)             :: rdg_gamma_cd_llb_nl
+  logical , intent(in)             :: trpd_leewv_rdg_gamma_nl
+  character(len=256), intent(in)    :: bnd_topo_nl ! full pathname for topo file
+  character(len=256), intent(in)    :: bnd_rdggm_nl ! full pathname for meso-Gamma ridge dataset
   ! Factor for SH orographic waves.
-  real(kind_phys), intent(in)             :: gw_oro_south_fac_in
+  real(kind_phys), intent(in)             :: gw_oro_south_fac_nl
   ! Whether or not to limit tau *before* applying any efficiency factors.
-  logical, intent(in)             :: gw_limit_tau_without_eff_in
-  logical, intent(in)              :: gw_lndscl_sgh_in
-  real(kind_phys), intent(in)             :: gw_prndl_in
+  logical, intent(in)             :: gw_limit_tau_without_eff_nl
+  logical, intent(in)              :: gw_lndscl_sgh_nl
+  real(kind_phys), intent(in)             :: gw_prndl_nl
   ! Whether or not to apply tendency max
-  logical, intent(in)             :: gw_apply_tndmax_in
-  real(kind_phys), intent(in)             :: gw_qbo_hdepth_scaling_in
-  logical, intent(in)             :: gw_top_taper_in
+  logical, intent(in)             :: gw_apply_tndmax_nl
+  real(kind_phys), intent(in)             :: gw_qbo_hdepth_scaling_nl
+  logical, intent(in)             :: gw_top_taper_nl
   ! Width of gaussian used to create frontogenesis tau profile [m s-1].
-  real(kind_phys), intent(in)             :: front_gaussian_width_in
-  real(kind_phys), intent(in)             :: alpha_gw_movmtn_in
+  real(kind_phys), intent(in)             :: front_gaussian_width_nl
+  real(kind_phys), intent(in)             :: alpha_gw_movmtn_nl
   logical, intent(in)                     :: use_gw_rdg_resid_in
 
   real(kind_phys), intent(in)             :: effgw_rdg_resid_in
@@ -380,11 +382,10 @@ contains
   integer, intent(in)             :: iulog_in
   integer, intent(in)             :: ktop_in
   logical, intent(in)             :: masterproc_in
+  integer, intent(in)             :: nbot_molec_in
   logical, intent(in)             :: do_molec_diff_in
   real(kind_phys), intent(in)     :: wavelength_mid_in
   real(kind_phys), intent(in)     :: wavelength_long_in
-  real(kind_phys), intent(in)     ::  movmtn_psteer_in
-  real(kind_phys), intent(in)     ::  movmtn_plaunch_in
 
   character(len=512), intent(out) :: errmsg
   integer, intent(out)            :: errflg
@@ -465,46 +466,48 @@ contains
   pref_mid  = pref_mid_in
   masterproc =  masterproc_in
   iulog  =   iulog_in
-  pgwv  =   pgwv_in
-  gw_dc =   gw_dc_in
-  pgwv_long =   pgwv_long_in
-  gw_dc_long =   gw_dc_long_in
-  tau_0_ubc =   tau_0_ubc_in
-  effgw_beres_dp =   effgw_beres_dp_in
-  effgw_beres_sh =   effgw_beres_sh_in
-  effgw_cm =   effgw_cm_in
-  effgw_cm_igw =   effgw_cm_igw_in
-  effgw_oro =   effgw_oro_in
+  pgwv  =   pgwv_nl
+  gw_dc =   gw_dc_nl
+  pgwv_long =   pgwv_long_nl
+  gw_dc_long =   gw_dc_long_nl
+  tau_0_ubc =   tau_0_ubc_nl
+  effgw_beres_dp =   effgw_beres_dp_nl
+  effgw_beres_sh =   effgw_beres_sh_nl
+  effgw_cm =   effgw_cm_nl
+  effgw_cm_igw =   effgw_cm_igw_nl
+  effgw_oro =   effgw_oro_nl
   fcrit2 =   fcrit2_in
-  frontgfc =   frontgfc_in
-  gw_drag_file    =   trim(gw_drag_file_in)
-  gw_drag_file_sh =   trim(gw_drag_file_sh_in)
-  gw_drag_file_mm =   trim(gw_drag_file_mm_in)
-  taubgnd =   taubgnd_in
-  taubgnd_igw =   taubgnd_igw_in
-  gw_polar_taper =   gw_polar_taper_in
-  use_gw_rdg_beta =   use_gw_rdg_beta_in
-  n_rdg_beta =   n_rdg_beta_in
-  effgw_rdg_beta =   effgw_rdg_beta_in
-  effgw_rdg_beta_max =   effgw_rdg_beta_max_in
-  rdg_beta_cd_llb =   rdg_beta_cd_llb_in
-  trpd_leewv_rdg_beta =   trpd_leewv_rdg_beta_in
-  use_gw_rdg_gamma =   use_gw_rdg_gamma_in
-  n_rdg_gamma =   n_rdg_gamma_in
-  effgw_rdg_gamma =   effgw_rdg_gamma_in
-  effgw_rdg_gamma_max =   effgw_rdg_gamma_max_in
-  rdg_gamma_cd_llb =   rdg_gamma_cd_llb_in
-  trpd_leewv_rdg_gamma =   trpd_leewv_rdg_gamma_in
-  bnd_rdggm =   trim(bnd_rdggm_in)
-  gw_oro_south_fac =   gw_oro_south_fac_in
-  gw_limit_tau_without_eff =   gw_limit_tau_without_eff_in
-  gw_lndscl_sgh =   gw_lndscl_sgh_in
-  gw_prndl =   gw_prndl_in
-  gw_apply_tndmax =   gw_apply_tndmax_in
-  gw_qbo_hdepth_scaling =   gw_qbo_hdepth_scaling_in
-  gw_top_taper =   gw_top_taper_in
-  front_gaussian_width =   front_gaussian_width_in
-  alpha_gw_movmtn =   alpha_gw_movmtn_in
+  rearth =   rearth_in
+  frontgfc =   frontgfc_nl
+  gw_drag_file    =   trim(gw_drag_file_nl)
+  gw_drag_file_sh =   trim(gw_drag_file_sh_nl)
+  gw_drag_file_mm =   trim(gw_drag_file_mm_nl)
+  taubgnd =   taubgnd_nl
+  taubgnd_igw =   taubgnd_igw_nl
+  gw_polar_taper =   gw_polar_taper_nl
+  use_gw_rdg_beta =   use_gw_rdg_beta_nl
+  n_rdg_beta =   n_rdg_beta_nl
+  effgw_rdg_beta =   effgw_rdg_beta_nl
+  effgw_rdg_beta_max =   effgw_rdg_beta_max_nl
+  rdg_beta_cd_llb =   rdg_beta_cd_llb_nl
+  trpd_leewv_rdg_beta =   trpd_leewv_rdg_beta_nl
+  use_gw_rdg_gamma =   use_gw_rdg_gamma_nl
+  n_rdg_gamma =   n_rdg_gamma_nl
+  effgw_rdg_gamma =   effgw_rdg_gamma_nl
+  effgw_rdg_gamma_max =   effgw_rdg_gamma_max_nl
+  rdg_gamma_cd_llb =   rdg_gamma_cd_llb_nl
+  trpd_leewv_rdg_gamma =   trpd_leewv_rdg_gamma_nl
+  bnd_topo =   trim(bnd_topo_nl)
+  bnd_rdggm =   trim(bnd_rdggm_nl)
+  gw_oro_south_fac =   gw_oro_south_fac_nl
+  gw_limit_tau_without_eff =   gw_limit_tau_without_eff_nl
+  gw_lndscl_sgh =   gw_lndscl_sgh_nl
+  gw_prndl =   gw_prndl_nl
+  gw_apply_tndmax =   gw_apply_tndmax_nl
+  gw_qbo_hdepth_scaling =   gw_qbo_hdepth_scaling_nl
+  gw_top_taper =   gw_top_taper_nl
+  front_gaussian_width =   front_gaussian_width_nl
+  alpha_gw_movmtn =   alpha_gw_movmtn_nl
 
   use_gw_rdg_resid = use_gw_rdg_resid_in
   effgw_rdg_resid = effgw_rdg_resid_in
@@ -521,6 +524,7 @@ contains
   use_simple_phys =   use_simple_phys_in
   use_gw_movmtn_pbl =   use_gw_movmtn_pbl_in
   do_molec_diff = do_molec_diff_in
+  nbot_molec = nbot_molec_in
   wavelength_mid = wavelength_mid_in
   wavelength_long = wavelength_long_in
   ktop = ktop_in
@@ -573,8 +577,6 @@ contains
   end if
 
 
-
-
   if (masterproc) then
      write(iulog,*) 'KTOP        =',ktop
   end if
@@ -583,21 +585,39 @@ contains
   call gw_common_init(pver,&
        tau_0_ubc, ktop, gravit, rair, alpha, gw_prndl, &
        gw_qbo_hdepth_scaling, errstring )
-!!$  call shr_assert(trim(errstring) == "", "gw_common_init: "//errstring// &
-!!$       errorMsg(__FILE__, __LINE__))
 
   ! Initialize subordinate modules.
-  call gw_movmtn_init(pver,&
-     gw_dc, wavelength_mid, &
-     pref_edge, movmtn_psteer, movmtn_plaunch, source_in, masterproc, iulog, errmsg, errflg )
+  call gw_rdg_init( band_oro, &
+       prdg, &
+       rearth, &
+       effgw_rdg_beta, &
+       effgw_rdg_gamma, &
+       use_gw_rdg_beta, &
+       use_gw_rdg_gamma, &
+       bnd_topo_file, &
+       bnd_rdg_file, &
+       do_divstream, C_BetaMax_DS, C_GammaMax, &
+       Frx0, Frx1, C_BetaMax_SM, Fr_c, &
+       do_smooth_regimes, do_adjust_tauoro, &
+       do_backward_compat, orohmin, orovmin, &
+       orostratmin, orom2min, gw_rdg_do_vdiff, &
+       masterproc, iulog, errmsg, errflg)
 
+  call gw_front_init( pver, pref_edge, frontgfc, band_mid, band_long, &
+       taubgnd, taubgnd_igw, &
+       effgw_cm, effgw_cm_igw, use_gw_front, use_gw_front_igw, &
+       front_gaussian_width, masterproc, iulog, errmsg, errflg )
+
+  call gw_movmtn_init( pver, gw_drag_file_mm, &
+       band_movmtn, &
+       pref_edge, movmtn_psteer, movmtn_plaunch, movmtn_source_in, masterproc, iulog, errmsg, errflg )
 
 
   if (gw_top_taper) then
      allocate(vramp(pver))
      vramp(:) = 1._kind_phys
      topndx = 1
-     botndx = press_lim_idx( 0.6E-02_kind_phys, top=.true. )
+     botndx = press_lim_idx( 0.6E-02_kind_phys, pref_mid, top=.true. )
      if (botndx>1) then
         do k=botndx,topndx,-1
            vramp(k) = vramp(k+1)/(pref_edge(k+1)/pref_edge(k))
@@ -701,9 +721,10 @@ subroutine gw_drag_run( &
   use gw_common,       only: momentum_flux, momentum_fixer, energy_change
   use gw_common,       only: energy_fixer, coriolis_speed, adjust_inertial
   use gw_oro,          only: gw_oro_src
-  use gw_front,        only: gw_cm_src
-  use gw_convect,      only: gw_beres_src
+  use gw_front,        only: gw_cm_src, cm_desc, cm_igw_desc
+  use gw_convect,      only: gw_beres_src, beres_dp_desc, beres_sh_desc
   use gw_movmtn,       only: gw_movmtn_run
+  use gw_rdg,          only: gw_rdg_run
 
   integer,  intent(in)        :: ncol  ! number of atmospheric columns
   integer,  intent(in)        :: pcnst ! chunk number
@@ -731,7 +752,7 @@ subroutine gw_drag_run( &
   real(kind_phys), intent(in) :: state_q(:,:,:) ! constituent array
   real(kind_phys), intent(in) :: vorticity(:,:) ! vorticity
   real(kind_phys), intent(in) :: sgh(:)         !
-  real(kind_phys), intent(in) :: kvtt(:,:)       !
+  real(kind_phys), intent(inout) :: kvtt(:,:)       !
   real(kind_phys), intent(in) :: ttend_dp(:,:)  ! Temperature change due to deep convection.
   real(kind_phys), intent(in) :: ttend_sh(:,:)  ! Temperature change due to shallow convection.
   real(kind_phys), intent(in) :: ttend_clubb(:,:)
@@ -755,7 +776,6 @@ subroutine gw_drag_run( &
   !---------------------------Local storage-------------------------------
   character(len=*), parameter :: sub = 'gw_drag_run'
 
-  integer :: lchnk                  ! chunk identifier
   integer :: stat
 
   integer :: i, k                   ! loop indices
@@ -886,13 +906,13 @@ subroutine gw_drag_run( &
 
      ! Use linear extrapolation of cpairv to top interface.
      kvtt(:,1) = kvtt(:,1) / &
-          (1.5_kind_phys*cpairv(:ncol,1,lchnk) - &
-          0.5_kind_phys*cpairv(:ncol,2,lchnk))
+          (1.5_kind_phys*cpairv(:ncol,1) - &
+          0.5_kind_phys*cpairv(:ncol,2))
 
      ! Interpolate cpairv to other interfaces.
      do k = 2, nbot_molec
         kvtt(:,k) = kvtt(:,k) / &
-             (cpairv(:ncol,k+1,lchnk)+cpairv(:ncol,k,lchnk)) * 2._kind_phys
+             (cpairv(:ncol,k+1)+cpairv(:ncol,k)) * 2._kind_phys
      enddo
 
   else
@@ -918,7 +938,6 @@ subroutine gw_drag_run( &
 
      call gw_movmtn_run(ncol, &
           band_movmtn , &
-          movmtn_desc, &
           state_t, pcnst, &
           state_u, state_v, p, ttend_dp, ttend_clubb, &
           upwp_clubb_gw, vpwp_clubb_gw, vorticity, &
@@ -1396,16 +1415,10 @@ subroutine gw_drag_run( &
 
   end if
 
-  if (use_gw_rdg_beta) then
-     !---------------------------------------------------------------------
-     ! Orographic stationary gravity waves
-     !---------------------------------------------------------------------
+  if (use_gw_rdg_beta .or. use_gw_rdg_gamma ) then
 
-     ! Efficiency of gravity wave momentum transfer.
-     ! Take into account that wave sources are only over land.
-
-     where(rdg_mxdis < 0._kind_phys)
-        rdg_mxdis = 0._kind_phys
+     where(rdg_mxdisg < 0._kind_phys)
+        rdg_mxdisg = 0._kind_phys
      end where
 
 !!$     ! Save state at top of routine
@@ -1416,39 +1429,22 @@ subroutine gw_drag_run( &
 !!$     call outfld('ZEGW', zi , ncol, lchnk)
 !!$     call outfld('ZMGW', zm , ncol, lchnk)
 
-     call gw_rdg_calc(&
-        pcnst, pver, 'BETA ', ncol, n_rdg_beta, dt,     &
-        state_u, state_v, state_t, p, piln, zm, zi,                 &
-        nm, ni, rhoi, kvtt, state_q, dse,               &
-        effgw_rdg_beta, effgw_rdg_beta_max,       &
-        rdg_hwdth, rdg_clngt, rdg_gbxar, rdg_mxdis, rdg_angll, rdg_anixy, &
-        rdg_beta_cd_llb, trpd_leewv_rdg_beta,     &
-        q_tend, s_tend, u_tend, v_tend, flx_heat,errmsg, errflg)
+     call gw_rdg_run(&
+          use_gw_rdg_beta, &
+          use_gw_rdg_gamma, &
+          vramp, &
+          pcnst, pver, ncol, n_rdg_beta, n_rdg_gamma, dt,          &
+          state_u, state_v, state_t, p, piln, zm, zi,  &
+          nm, ni, rhoi, kvtt, state_q, dse,            &
+          effgw_rdg_resid, use_gw_rdg_resid,           &
+          effgw_rdg_beta, effgw_rdg_beta_max,          &
+          effgw_rdg_gamma, effgw_rdg_gamma_max,        &
+          rdg_beta_cd_llb, trpd_leewv_rdg_beta,        &
+          rdg_gamma_cd_llb, trpd_leewv_rdg_gamma,      &
+          q_tend, s_tend, u_tend, v_tend, flx_heat, errmsg, errflg)
 
   end if
 
-  if (use_gw_rdg_gamma) then
-     !---------------------------------------------------------------------
-     ! Orographic stationary gravity waves
-     !---------------------------------------------------------------------
-
-     ! Efficiency of gravity wave momentum transfer.
-     ! Take into account that wave sources are only over land.
-
-     where(rdg_mxdisg < 0._kind_phys)
-        rdg_mxdisg = 0._kind_phys
-     end where
-
-     call gw_rdg_calc(&
-        pcnst, pver, 'GAMMA', ncol, n_rdg_gamma, dt,         &
-        state_u, state_v, state_t, p, piln, zm, zi,                      &
-        nm, ni, rhoi, kvtt, state_q, dse,                    &
-        effgw_rdg_gamma, effgw_rdg_gamma_max,          &
-        rdg_hwdthg, rdg_clngtg, rdg_gbxar, rdg_mxdisg, rdg_angllg, rdg_anixyg, &
-        rdg_gamma_cd_llb, trpd_leewv_rdg_gamma,        &
-        q_tend, s_tend, u_tend, v_tend, flx_heat, errmsg, errflg)
-
-  endif
 
 !!$  ! Convert the tendencies for the dry constituents to dry air basis.
 !!$  do m = 1, pcnst
@@ -1477,313 +1473,6 @@ subroutine gw_drag_run( &
 
 end subroutine gw_drag_run
 
-!==========================================================================
-
-subroutine gw_rdg_calc( &
-   pcnst, pver, type, ncol, n_rdg, dt, &
-   u, v, t, p, piln, zm, zi, &
-   nm, ni, rhoi, kvtt, q, dse, &
-   effgw_rdg, effgw_rdg_max, &
-   hwdth, clngt, gbxar, &
-   mxdis, angll, anixy, &
-   rdg_cd_llb, trpd_leewv, &
-   q_tend,s_tend,u_tend,v_tend, flx_heat, errmsg, errflg)
-
-   use coords_1d,  only: Coords1D
-   use gw_rdg,     only: gw_rdg_src, gw_rdg_belowpeak, gw_rdg_break_trap, gw_rdg_do_vdiff
-   use gw_common,  only: gw_drag_prof, energy_change
-
-   integer,          intent(in) :: pcnst        ! number of atmospheric constituents
-   integer,          intent(in) :: pver         ! number of atmospheric constituents
-   character(len=5), intent(in) :: type         ! BETA or GAMMA
-   integer,          intent(in) :: ncol         ! number of atmospheric columns
-   integer,          intent(in) :: n_rdg
-   real(kind_phys),         intent(in) :: dt           ! Time step.
-
-   real(kind_phys),         intent(in) :: u(:,:)    ! Midpoint zonal winds. ( m s-1)
-   real(kind_phys),         intent(in) :: v(:,:)    ! Midpoint meridional winds. ( m s-1)
-   real(kind_phys),         intent(in) :: t(:,:)    ! Midpoint temperatures. (K)
-   type(Coords1D),   intent(in) :: p               ! Pressure coordinates.
-   real(kind_phys),         intent(in) :: piln(:,:)  ! Log of interface pressures.
-   real(kind_phys),         intent(in) :: zm(:,:)   ! Midpoint altitudes above ground (m).
-   real(kind_phys),         intent(in) :: zi(:,:) ! Interface altitudes above ground (m).
-   real(kind_phys),         intent(in) :: nm(:,:)   ! Midpoint Brunt-Vaisalla frequencies (s-1).
-   real(kind_phys),         intent(in) :: ni(:,:) ! Interface Brunt-Vaisalla frequencies (s-1).
-   real(kind_phys),         intent(in) :: rhoi(:,:) ! Interface density (kg m-3).
-   real(kind_phys),         intent(in) :: kvtt(:,:) ! Molecular thermal diffusivity.
-   real(kind_phys),         intent(in) :: q(:,:,:)        ! Constituent array.
-   real(kind_phys),         intent(in) :: dse(:,:)  ! Dry static energy.
-
-
-   real(kind_phys),         intent(in) :: effgw_rdg       ! Tendency efficiency.
-   real(kind_phys),         intent(in) :: effgw_rdg_max
-   real(kind_phys),         intent(in) :: hwdth(:,:) ! width of ridges.
-   real(kind_phys),         intent(in) :: clngt(:,:) ! length of ridges.
-   real(kind_phys),         intent(in) :: gbxar(:)      ! gridbox area
-
-   real(kind_phys),         intent(in) :: mxdis(:,:) ! Height estimate for ridge (m).
-   real(kind_phys),         intent(in) :: angll(:,:) ! orientation of ridges.
-   real(kind_phys),         intent(in) :: anixy(:,:) ! Anisotropy parameter.
-
-   real(kind_phys),         intent(in) :: rdg_cd_llb      ! Drag coefficient for low-level flow
-   logical,          intent(in) :: trpd_leewv
-
-   real(kind_phys), intent(inout):: s_tend(:,:)   ! dry air enthalpy tendency
-   real(kind_phys), intent(inout):: q_tend(:,:,:)
-   real(kind_phys), intent(inout):: u_tend(:,:)
-   real(kind_phys), intent(inout):: v_tend(:,:)
-   real(kind_phys),        intent(out) :: flx_heat(:)
-   character(len=512), intent(out) :: errmsg
-   integer, intent(out)            :: errflg
-
-   !---------------------------Local storage-------------------------------
-
-   character(len=*), parameter :: sub = 'gw_rdg_calc'
-   integer :: k, m, nn, stat
-
-   real(kind_phys), allocatable :: tau(:,:,:)  ! wave Reynolds stress
-   ! gravity wave wind tendency for each wave
-   real(kind_phys), allocatable :: gwut(:,:,:)
-   ! Wave phase speeds for each column
-   real(kind_phys), allocatable :: phase_speeds(:,:)
-
-   ! Isotropic source flag [anisotropic orography].
-   integer  :: isoflag(ncol)
-
-   ! horiz wavenumber [anisotropic orography].
-   real(kind_phys) :: kwvrdg(ncol)
-
-   ! Efficiency for a gravity wave source.
-   real(kind_phys) :: effgw(ncol)
-
-   ! Indices of top gravity wave source level and lowest level where wind
-   ! tendencies are allowed.
-   integer :: src_level(ncol)
-   integer :: tend_level(ncol)
-   integer :: bwv_level(ncol)
-   integer :: tlb_level(ncol)
-
-   ! Projection of wind at midpoints and interfaces.
-   real(kind_phys) :: ubm(ncol,pver)
-   real(kind_phys) :: ubi(ncol,pver+1)
-
-   ! Unit vectors of source wind (zonal and meridional components).
-   real(kind_phys) :: xv(ncol)
-   real(kind_phys) :: yv(ncol)
-
-   ! Averages over source region.
-   real(kind_phys) :: ubmsrc(ncol) ! On-ridge wind.
-   real(kind_phys) :: usrc(ncol)   ! Zonal wind.
-   real(kind_phys) :: vsrc(ncol)   ! Meridional wind.
-   real(kind_phys) :: nsrc(ncol)   ! B-V frequency.
-   real(kind_phys) :: rsrc(ncol)   ! Density.
-
-   ! normalized wavenumber
-   real(kind_phys) :: m2src(ncol)
-
-   ! Top of low-level flow layer.
-   real(kind_phys) :: tlb(ncol)
-
-   ! Bottom of linear wave region.
-   real(kind_phys) :: bwv(ncol)
-
-   ! Froude numbers for flow/drag regimes
-   real(kind_phys) :: Fr1(ncol)
-   real(kind_phys) :: Fr2(ncol)
-   real(kind_phys) :: Frx(ncol)
-
-   ! Wave Reynolds stresses at source level
-   real(kind_phys) :: tauoro(ncol)
-   real(kind_phys) :: taudsw(ncol)
-
-   ! Surface streamline displacement height for linear waves.
-   real(kind_phys) :: hdspwv(ncol)
-
-   ! Surface streamline displacement height for downslope wind regime.
-   real(kind_phys) :: hdspdw(ncol)
-
-   ! Wave breaking level
-   real(kind_phys) :: wbr(ncol)
-
-   real(kind_phys) :: utgw(ncol,pver)       ! zonal wind tendency
-   real(kind_phys) :: vtgw(ncol,pver)       ! meridional wind tendency
-   real(kind_phys) :: ttgw(ncol,pver)       ! temperature tendency
-   real(kind_phys) :: qtgw(ncol,pver,pcnst) ! constituents tendencies
-
-   ! Effective gravity wave diffusivity at interfaces.
-   real(kind_phys) :: egwdffi(ncol,pver+1)
-
-   ! Temperature tendencies from diffusion and kinetic energy.
-   real(kind_phys) :: dttdf(ncol,pver)
-   real(kind_phys) :: dttke(ncol,pver)
-
-   ! Wave stress in zonal/meridional direction
-   real(kind_phys) :: taurx(ncol,pver+1)
-   real(kind_phys) :: taurx0(ncol,pver+1)
-   real(kind_phys) :: taury(ncol,pver+1)
-   real(kind_phys) :: taury0(ncol,pver+1)
-   ! Provisional absolute wave stress from gw_drag_prof
-   real(kind_phys) :: tau_diag(ncol,pver+1)
-
-   ! U,V tendency accumulators
-   real(kind_phys) :: utrdg(ncol,pver)
-   real(kind_phys) :: vtrdg(ncol,pver)
-   real(kind_phys) :: ttrdg(ncol,pver)
-
-   ! Energy change used by fixer.
-   real(kind_phys) :: de(ncol)
-
-   character(len=1) :: cn
-   character(len=9) :: fname(4)
-   !----------------------------------------------------------------------------
-
-   errmsg =''
-   errflg = 0
-
-   ! Allocate wavenumber fields.
-   allocate(tau(ncol,band_oro%ngwv:band_oro%ngwv,pver+1),stat=stat)
-     call handle_err( stat, errflg,sub//': Allocate of tau failed', errmsg )
-   allocate(gwut(ncol,pver,band_oro%ngwv:band_oro%ngwv),stat=stat)
-     call handle_err( stat, errflg,sub//': Allocate of gwut failed', errmsg )
-   allocate(phase_speeds(ncol,band_oro%ngwv:band_oro%ngwv),stat=stat)
-     call handle_err( stat, errflg,sub//': Allocate of phase_speeds failed', errmsg )
-
-   ! initialize accumulated momentum fluxes and tendencies
-   taurx = 0._kind_phys
-   taury = 0._kind_phys
-   ttrdg = 0._kind_phys
-   utrdg = 0._kind_phys
-   vtrdg = 0._kind_phys
-   tau_diag = -9999._kind_phys
-
-   do nn = 1, n_rdg
-      kwvrdg  = 0.001_kind_phys / ( hwdth(:,nn) + 0.001_kind_phys ) ! this cant be done every time step !!!
-      isoflag = 0
-      effgw   = effgw_rdg * ( hwdth(1:ncol,nn)* clngt(1:ncol,nn) ) / gbxar(1:ncol)
-      effgw   = min( effgw_rdg_max , effgw )
-
-      call gw_rdg_src(ncol, pver, band_oro, p, &
-         u, v, t, mxdis(:,nn), angll(:,nn), anixy(:,nn), kwvrdg, isoflag, zi, nm, &
-         src_level, tend_level, bwv_level, tlb_level, tau, ubm, ubi, xv, yv,  &
-         ubmsrc, usrc, vsrc, nsrc, rsrc, m2src, tlb, bwv, Fr1, Fr2, Frx, phase_speeds)
-
-      call gw_rdg_belowpeak(ncol, pver, band_oro, rdg_cd_llb, &
-         t, mxdis(:,nn), anixy(:,nn), kwvrdg, &
-         zi, nm, ni, rhoi, &
-         src_level, tau, &
-         ubmsrc, nsrc, rsrc, m2src, tlb, bwv, Fr1, Fr2, Frx, &
-         tauoro, taudsw, hdspwv, hdspdw)
-
-
-      call gw_rdg_break_trap(ncol, pver, band_oro, &
-         zi, nm, ni, ubm, ubi, rhoi, kwvrdg , bwv, tlb, wbr, &
-         src_level, tlb_level, hdspwv, hdspdw,  mxdis(:,nn), &
-         tauoro, taudsw, tau, &
-         ldo_trapped_waves=trpd_leewv)
-
-
-      call gw_drag_prof(ncol, band_oro, p, src_level, tend_level, dt, &
-         t, vramp,    &
-         piln, rhoi, nm, ni, ubm, ubi, xv, yv,   &
-         effgw, phase_speeds, kvtt, q, dse, tau, utgw, vtgw, &
-         ttgw, qtgw, egwdffi,   gwut, dttdf, dttke, &
-         kwvrdg=kwvrdg, &
-         satfac_in = 1._kind_phys, lapply_vdiff=gw_rdg_do_vdiff , tau_diag=tau_diag )
-
-      ! Add the tendencies from each ridge to the totals.
-      do k = 1, pver
-         ! diagnostics
-         utrdg(:,k) = utrdg(:,k) + utgw(:,k)
-         vtrdg(:,k) = vtrdg(:,k) + vtgw(:,k)
-         ttrdg(:,k) = ttrdg(:,k) + ttgw(:,k)
-         ! physics tendencies
-         u_tend(:ncol,k) = u_tend(:ncol,k) + utgw(:,k)
-         v_tend(:ncol,k) = v_tend(:ncol,k) + vtgw(:,k)
-         s_tend(:ncol,k) = s_tend(:ncol,k) + ttgw(:,k)
-      end do
-
-      do m = 1, pcnst
-         do k = 1, pver
-            q_tend(:ncol,k,m) = q_tend(:ncol,k,m) + qtgw(:,k,m)
-         end do
-      end do
-
-      do k = 1, pver+1
-         taurx0(:,k) = tau(:,0,k)*xv
-         taury0(:,k) = tau(:,0,k)*yv
-         taurx(:,k)  = taurx(:,k) + taurx0(:,k)
-         taury(:,k)  = taury(:,k) + taury0(:,k)
-      end do
-
-      if (nn == 1) then
-!!$         call outfld('BWV_HT1', bwv,     ncol, lchnk)
-!!$         call outfld('TLB_HT1', tlb,     ncol, lchnk)
-!!$         call outfld('WBR_HT1', wbr,     ncol, lchnk)
-!!$         call outfld('TAUDSW1', taudsw,  ncol, lchnk)
-!!$         call outfld('TAUORO1', tauoro,  ncol, lchnk)
-!!$         call outfld('UBMSRC1', ubmsrc,  ncol, lchnk)
-!!$         call outfld('USRC1',   usrc,    ncol, lchnk)
-!!$         call outfld('VSRC1',   vsrc,    ncol, lchnk)
-!!$         call outfld('NSRC1'  , nsrc,    ncol, lchnk)
-!!$         ! Froude numbers
-!!$         call outfld('Fr1_DIAG' , Fr1,    ncol, lchnk)
-!!$         call outfld('Fr2_DIAG' , Fr2,    ncol, lchnk)
-!!$         call outfld('Frx_DIAG' , Frx,    ncol, lchnk)
-!!$         ! Ridge quantities - don't change.  Written for convenience
-!!$         call outfld('MXDIS1' , mxdis(:,nn) ,  ncol, lchnk)
-!!$         call outfld('ANGLL1' , angll(:,nn) ,  ncol, lchnk)
-!!$         call outfld('ANIXY1' , anixy(:,nn) ,  ncol, lchnk)
-!!$         call outfld('HWDTH1' , hwdth(:,nn) ,  ncol, lchnk)
-!!$         call outfld('CLNGT1' , clngt(:,nn) ,  ncol, lchnk)
-!!$         call outfld('GBXAR1' , gbxar ,        ncol, lchnk)
-!!$         call outfld('TAUM1_DIAG' , tau_diag ,  ncol, lchnk)
-!!$         call outfld('TAU1RDG'//trim(type)//'M', tau(:,0,:),  ncol, lchnk)
-!!$         call outfld('UBM1'//trim(type),         ubm,         ncol, lchnk)
-!!$         call outfld('UBT1RDG'//trim(type),      gwut,        ncol, lchnk)
-      end if
-
-      if (nn <= 6) then
-!!$         write(cn, '(i1)') nn
-!!$         call outfld('TAU'//cn//'RDG'//trim(type)//'X', taurx0,  ncol, lchnk)
-!!$         call outfld('TAU'//cn//'RDG'//trim(type)//'Y', taury0,  ncol, lchnk)
-!!$         call outfld('UT'//cn//'RDG'//trim(type),       utgw,    ncol, lchnk)
-!!$         call outfld('VT'//cn//'RDG'//trim(type),       vtgw,    ncol, lchnk)
-      end if
-
-   end do ! end of loop over multiple ridges
-
-   ! Calculate energy change for output to CAM's energy checker.
-   call energy_change(dt, p, u, v, u_tend(:ncol,:), &
-          v_tend(:ncol,:), s_tend(:ncol,:), de)
-   flx_heat(:ncol) = de
-
-!!$   call outfld('TAUARDG'//trim(type)//'X', taurx,  ncol, lchnk)
-!!$   call outfld('TAUARDG'//trim(type)//'Y', taury,  ncol, lchnk)
-
-   if (trim(type) == 'BETA') then
-      fname(1) = 'TAUGWX'
-      fname(2) = 'TAUGWY'
-      fname(3) = 'UTGWORO'
-      fname(4) = 'VTGWORO'
-   else if (trim(type) == 'GAMMA') then
-      fname(1) = 'TAURDGGMX'
-      fname(2) = 'TAURDGGMY'
-      fname(3) = 'UTRDGGM'
-      fname(4) = 'VTRDGGM'
-   else
-      call handle_err( 1, errflg,sub//'gw_rdg_calc: FATAL: type must be either BETA or GAMMA'&
-                  //' type= '//type, errmsg )
-   end if
-
-!!$   call outfld(fname(1), taurx(:,pver+1), ncol, lchnk)
-!!$   call outfld(fname(2), taury(:,pver+1), ncol, lchnk)
-!!$   call outfld(fname(3), utrdg,  ncol, lchnk)
-!!$   call outfld(fname(4), vtrdg,  ncol, lchnk)
-!!$   call outfld('TTGWORO', ttrdg / cpair,  ncol, lchnk)
-
-   deallocate(tau, gwut, phase_speeds)
-
-end subroutine gw_rdg_calc
 
 !==========================================================================
 
@@ -2020,8 +1709,8 @@ tauy = 0._kind_phys
      dumc1x = tau_fld_name(l, prefix, x_not_y=.true.)
      dumc1y = tau_fld_name(l, prefix, x_not_y=.false.)
 
-     call outfld(dumc1x,dummyx,ncol,lchnk)
-     call outfld(dumc1y,dummyy,ncol,lchnk)
+!jt     call outfld(dumc1x,dummyx,ncol,lchnk)
+!jt     call outfld(dumc1y,dummyy,ncol,lchnk)
 
   enddo
 

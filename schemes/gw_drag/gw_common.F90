@@ -29,6 +29,8 @@ public :: pi
 public :: gravit
 public :: rair
 
+real(kind_phys), public, parameter :: unset_kind_phys = huge(1._kind_phys)
+
 ! Number of levels in the atmosphere.
 integer, protected :: pver = 0
 

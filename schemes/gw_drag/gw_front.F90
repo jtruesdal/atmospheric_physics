@@ -6,7 +6,7 @@ module gw_front
 !
 
 use ccpp_kinds, only:  kind_phys
-use gw_common, only: GWBand, pi, pver
+use gw_common, only: GWBand, pi, pver, unset_kind_phys
 
 implicit none
 private
@@ -16,6 +16,7 @@ public :: CMSourceDesc
 public :: flat_cm_desc
 public :: gaussian_cm_desc
 public :: gw_cm_src
+public :: gw_front_init
 
 ! Tuneable settings.
 type CMSourceDesc
@@ -30,7 +31,135 @@ type CMSourceDesc
    real(kind_phys), allocatable :: src_tau(:)
 end type CMSourceDesc
 
+! Frontogenesis wave settings.
+type(CMSourceDesc), public :: cm_desc
+type(CMSourceDesc), public :: cm_igw_desc
+
 contains
+
+  subroutine gw_front_init( pver, pref_edge, frontgfc, band_mid, band_long, &
+       taubgnd, taubgnd_igw, &
+       effgw_cm, effgw_cm_igw, use_gw_front, use_gw_front_igw, &
+       front_gaussian_width, masterproc, iulog, errmsg, errflg )
+
+  integer, intent(in)                           :: pver
+  ! Medium scale waves.
+  real(kind_phys), intent(in)                   :: pref_edge(:)
+  ! Frontogenesis function critical threshold.
+  real(kind_phys), intent(in)                   :: frontgfc
+  type(GWBand)                                  :: band_mid
+  ! Long scale waves for IGWs.
+  type(GWBand)                                  :: band_long
+  ! Background stress source strengths.
+  real(kind_phys), intent(in)                   :: taubgnd
+  real(kind_phys), intent(in)                   :: taubgnd_igw
+  real(kind_phys), intent(in)                   :: effgw_cm
+  ! C&M scheme (inertial waves).
+  real(kind_phys), intent(in)                   :: effgw_cm_igw
+  logical, intent(in)                           :: use_gw_front, use_gw_front_igw
+  real(kind_phys), intent(in)                   :: front_gaussian_width
+  logical, intent(in)                           :: masterproc
+  integer, intent(in)                           :: iulog
+  character(len=512), intent(out)               :: errmsg
+  integer, intent(out)                          :: errflg
+
+  integer :: istat, k
+  ! Bottom level for frontal waves.
+  integer :: kbot_front
+  ! Index for levels at specific pressures.
+  integer :: kfront
+
+  character(len=*), parameter :: sub = 'gw_front_init'
+
+  ! Initialize error variables
+  errmsg =''
+  errflg = 0
+
+  if (use_gw_front .or. use_gw_front_igw) then
+
+     ! Check that deep gw file is set in namelist
+     if (unset_kind_phys /= frontgfc) then
+        write(errmsg,'(a, a)') sub, &
+          " Frontogenesis enabled, but frontgfc was not set!"
+        errflg = 1
+        return
+     end if
+
+     do k = 0, pver
+        ! Check frontogenesis at 600 hPa.
+        if (pref_edge(k+1) < 60000._kind_phys) kfront = k+1
+     end do
+
+     ! Source waves from 500 hPa.
+     kbot_front = maxloc(pref_edge, 1, (pref_edge < 50000._kind_phys)) - 1
+
+     if (masterproc) then
+        write (iulog,*) 'KFRONT      =',kfront
+        write (iulog,*) 'KBOT_FRONT  =',kbot_front
+        write(iulog,*) ' '
+     end if
+!!$
+!!$     call addfld ('FRONTGF', (/ 'lev' /), 'A', 'K^2/M^2/S', &
+!!$          'Frontogenesis function at gws src level')
+!!$     call addfld ('FRONTGFA', (/ 'lev' /), 'A', 'K^2/M^2/S', &
+!!$          'Frontogenesis function at gws src level')
+!!$
+!!$     if (history_waccm) then
+!!$        call add_default('FRONTGF', 1, ' ')
+!!$        call add_default('FRONTGFA', 1, ' ')
+!!$     end if
+
+  end if
+
+  if (use_gw_front) then
+     ! Check that deep gw file is set in namelist
+     if (all(unset_kind_phys /= [ effgw_cm, taubgnd ])) then
+        write(errmsg,'(a, a)') sub, &
+             " Frontogenesis mid-scale waves enabled, but not all required namelist variables were set!"
+        errflg = 1
+        return
+     end if
+
+     if (masterproc) then
+        write(iulog,*) 'gw_init: gw spectrum taubgnd, ', &
+             'effgw_cm = ',taubgnd, effgw_cm
+        write(iulog,*) ' '
+     end if
+
+     cm_desc = gaussian_cm_desc(band_mid, kbot_front, kfront, frontgfc, &
+          taubgnd, front_gaussian_width)
+
+!!$     ! Output for gravity waves from frontogenesis.
+!!$     call gw_spec_addflds(prefix=cm_pf, scheme="C&M", band=band_mid, &
+!!$          history_defaults=history_waccm)
+
+  end if
+
+  if (use_gw_front_igw) then
+
+     ! Check that deep gw file is set in namelist
+     if (all(unset_kind_phys /= [ effgw_cm_igw, taubgnd_igw ])) then
+        write(errmsg,'(a, a)') sub, &
+             " Frontogenesis inertial waves enabled, but not all required namelist variables were set!"
+        errflg = 1
+        return
+     end if
+
+     if (masterproc) then
+        write(iulog,*) 'gw_init: gw spectrum taubgnd_igw, ', &
+             'effgw_cm_igw = ',taubgnd_igw, effgw_cm_igw
+        write(iulog,*) ' '
+     end if
+
+     cm_igw_desc = gaussian_cm_desc(band_long, kbot_front, kfront, frontgfc, &
+          taubgnd_igw, front_gaussian_width)
+
+!!$     ! Output for gravity waves from frontogenesis.
+!!$     call gw_spec_addflds(prefix=cm_igw_pf, scheme="C&M IGW", &
+!!$          band=band_long, history_defaults=history_waccm)
+
+  end if
+end subroutine gw_front_init
 
 ! Create a flat profile to be launched (all wavenumbers have the same
 ! source strength, except that l=0 is excluded).
@@ -60,7 +189,7 @@ end function flat_cm_desc
 
 ! Create a source tau profile that is a gaussian over wavenumbers (l=0 is
 ! excluded).
-function gaussian_cm_desc(band, ksrc, kfront, frontgfc, height, width) &
+function gaussian_cm_desc( band, ksrc, kfront, frontgfc, height, width) &
      result(desc)
 
   use shr_spfn_mod, only: erfc => shr_spfn_erfc
