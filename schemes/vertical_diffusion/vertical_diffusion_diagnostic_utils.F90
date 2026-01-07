@@ -160,10 +160,14 @@ contains
     slv_pre_PBL(:ncol, :pver) = sl_pre_PBL(:ncol, :pver) &
                                 * (1.0_kind_phys + zvir * qt_pre_PBL(:ncol, :pver))
 
+#ifdef planet_mars
+    sat_pre(1:ncol,:)=1.0d0
+#else
     ! Compute saturation vapor pressure and relative humidity before PBL
     do k = 1, pver
        call qsat(t0(:ncol, k), pmid(:ncol, k), tem2_pre(:ncol, k), sat_pre(:ncol, k), ncol)
     end do
+#endif
     rh_pre_PBL(:ncol, :pver) = q0_wv(:ncol, :pver) / sat_pre(:ncol, :pver) * 100.0_kind_phys
 
     ! ====================================================
@@ -200,10 +204,14 @@ contains
     ! Temperature after PBL (derived from dry static energy)
     t_aft_PBL(:ncol, :pver) = (s_aft_PBL(:ncol, :pver) - gravit * zm(:ncol, :pver)) / cpair
 
+#ifdef planet_mars
+    sat_aft(1:ncol,:)=1.0d0
+#else
     ! Compute saturation vapor pressure and relative humidity after PBL
     do k = 1, pver
        call qsat(t_aft_PBL(:ncol, k), pmid(:ncol, k), tem2_aft(:ncol, k), sat_aft(:ncol, k), ncol)
     end do
+#endif
     rh_aft_PBL(:ncol, :pver) = qv_aft_PBL(:ncol, :pver) / sat_aft(:ncol, :pver) * 100.0_kind_phys
 
     ! ====================================================
