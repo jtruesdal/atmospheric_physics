@@ -42,18 +42,17 @@ contains
     errflg = 0
 
 #ifdef planet_mars
-    allocate(kvm_sponge(6), stat=ierr)
-    if( ierr /= 0 ) then
-       write(iulog,*) 'vertical_diffusion_init:  kvm_sponge allocation error = ',ierr
-       call endrun('vertical_diffusion_init: failed to allocate kvm_sponge array')
+    allocate(kvm_sponge(6), stat=errflg, errmsg=errmsg)
+    if( errflg /= 0 ) then
+       return
     end if
-    
-    kvm_sponge(1) = 2E6_r8
-    kvm_sponge(2) = 2E6_r8
-    kvm_sponge(3) = 1.5E6_r8
-    kvm_sponge(4) = 1.0E6_r8
-    kvm_sponge(5) = 0.5E6_r8
-    kvm_sponge(6) = 0.1E6_r8
+
+    kvm_sponge(1) = 2E6_kind_phys
+    kvm_sponge(2) = 2E6_kind_phys
+    kvm_sponge(3) = 1.5E6_kind_phys
+    kvm_sponge(4) = 1.0E6_kind_phys
+    kvm_sponge(5) = 0.5E6_kind_phys
+    kvm_sponge(6) = 0.1E6_kind_phys
 #else
     ! Add sponge layer vertical diffusion based on model top pressure
     if (ptop_ref > 1.e-1_kind_phys .and. ptop_ref < 100.0_kind_phys) then
