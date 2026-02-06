@@ -86,7 +86,13 @@ module gw_common
   real(kind_phys), parameter :: taumin = 1.e-10_kind_phys
   ! Maximum wind tendency from stress divergence (before efficiency applied).
   ! 400 m/s/day
+  ! 50 m/s/day reduce the hammer for topo shock for exoplanets
+#ifdef planet_mars
+  !
+  real(kind_phys), parameter :: tndmax = 50._kind_phys/seconds_per_day
+#else
   real(kind_phys), parameter :: tndmax = 400._kind_phys/seconds_per_day
+#endif
   ! Maximum allowed change in u-c (before efficiency applied).
   real(kind_phys), parameter :: umcfac = 0.5_kind_phys
   ! Minimum value of (u-c)**2.
@@ -226,6 +232,20 @@ contains
                        57.4326_kind_phys, 76.4263_kind_phys, 101.701_kind_phys, 135.335_kind_phys, &
                        180.092_kind_phys, 239.651_kind_phys, 318.907_kind_phys, 424.373_kind_phys, &
                        564.718_kind_phys, 751.477_kind_phys, 1000._kind_phys]
+#ifdef planet_mars
+    ! --- MARS ADAPTATION ---
+    ! Option A: Rescale Earth pressures to Mars pressures.
+    ! Earth surface ~1000 hPa, Mars surface ~6 hPa. Factor = 0.006.
+    ! This shifts the damping profile so "surface" damping actually applies
+    ! at the Martian surface instead of being buried deep underground.
+    palph = palph * 0.006_kind_phys
+
+    ! Option B (Stabilizer): Force a constant, strong damping profile.
+    ! Uncomment the line below if Option A is still unstable.
+    ! Sets damping to 1.0/day everywhere (stronger than Earth's default).
+    ! alpha0 = 1.0_kind_phys
+#endif
+
 
     errmsg = ''
     errflg = 0

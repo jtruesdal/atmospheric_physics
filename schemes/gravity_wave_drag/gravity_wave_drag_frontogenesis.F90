@@ -89,14 +89,26 @@ contains
       return
     end if
 
+#ifdef planet_mars
+    ! Change these to Mars-relevant mid-troposphere values. The 50-100 Pa region is where we want the
+    ! waves to eventually break and stop your 500 m/s winds. But we must launch them from where the
+    ! weather exists (300-200 Pa) to get them there
     do k = 0, pver
-      ! Check frontogenesis at 600 hPa.
-      if (pref_edge(k + 1) < 60000._kind_phys) kfront = k + 1
+      ! Check frontogenesis at 3 hPa.
+      if (pref_edge(k + 1) < 300._kind_phys) kfront = k + 1
+    end do
+
+    ! Source waves from 2 hPa.
+    kbot_front = maxloc(pref_edge, 1, (pref_edge < 200._kind_phys)) - 1
+#else
+    do k = 0, pver
+       ! Check frontogenesis at 600 hPa.
+       if (pref_edge(k + 1) < 60000._kind_phys) kfront = k + 1
     end do
 
     ! Source waves from 500 hPa.
     kbot_front = maxloc(pref_edge, 1, (pref_edge < 50000._kind_phys)) - 1
-
+#endif
     if (masterproc) then
       write (iulog, *) 'KFRONT      =', kfront
       write (iulog, *) 'KBOT_FRONT  =', kbot_front

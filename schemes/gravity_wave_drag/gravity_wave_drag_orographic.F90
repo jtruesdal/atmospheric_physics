@@ -16,9 +16,18 @@ module gravity_wave_drag_orographic
 
   ! Limiters (min/max values)
   ! min surface displacement height for orographic waves [m]
+#ifdef planet_mars
+  real(kind_phys), parameter :: orohmin = 0._kind_phys
+#else
   real(kind_phys), parameter :: orohmin = 10._kind_phys
+#endif
   ! min wind speed for orographic waves [m s-1]
+#ifdef planet_mars
+  real(kind_phys), parameter :: orovmin = 0._kind_phys
+  real(kind_phys), parameter :: debug_threshold = 1.0e-4_kind_phys
+#else
   real(kind_phys), parameter :: orovmin = 2._kind_phys
+#endif
 
 contains
 
@@ -303,7 +312,52 @@ contains
       ! Convert to temperature tendency for output.
       ttgw(:, k) = ttgw(:, k)/cpairv(:ncol, k)
     end do
+#ifdef planet_mars
+    ! Adjust this threshold to filter noise.
+    ! Note: CAM tendencies are in m/s^2.
+    !   1.0e-3 m/s^2  ~= 86 m/s/day (Strong)
+    !   1.0e-5 m/s^2  ~= 0.8 m/s/day (Weak)
+    do i = 1, ncol
+       ! Check if this column has any significant activity
+       if (maxval(abs(utgw(i,:))) > debug_threshold .or. &
+           maxval(abs(vtgw(i,:))) > debug_threshold) then
 
+           write(6,*) '-----------------------------------------------------------'
+           write(6,*) 'DEBUG: MARS GW ORO - Significant Tendency Detected in col', i
+           write(6,*) '  Lat (deg): ', lat(i)*57.29578_kind_phys
+
+           ! 1. Source Term Components (Why is stress small/large?)
+           write(6,*) '  SOURCE TERMS (Bottom Level):'
+           write(6,*) '    tauoro (Surface Stress) [N/m2]: ', tauoro(i)
+           write(6,*) '    effgw (Efficiency)            : ', effgw(i)
+           write(6,*) '    SGH (Topo StdDev) [m]         : ', sgh_local(i)
+           write(6,*) '    HDSP (Displacement 2*SGH) [m] : ', hdsp(i)
+           write(6,*) '    RHO_src (Density) [kg/m3]     : ', rsrc(i)
+           write(6,*) '    N_src (Stability) [s-1]       : ', nsrc(i)
+           write(6,*) '    U_src (Projected Wind) [m/s]  : ', ubi(i, pver+1)
+
+           ! Check for critical failure modes
+           if (nsrc(i) < 1.0e-5_kind_phys) write(6,*) '    WARNING: Low Stability (N ~ 0)!'
+           if (hdsp(i) < 10.0_kind_phys)   write(6,*) '    WARNING: Low Topography (< 10m)!'
+
+           ! 2. Vertical Profile (Where is it breaking?)
+           write(6,*) '  VERTICAL PROFILE (Top 5 & Bottom 5 levels):'
+           write(6, '(A5, A15, A15, A15)') 'Lev', 'U-Tend', 'V-Tend', 'Tau (Stress)'
+
+           ! Top levels
+           do k = 1, 5
+              write(6, '(I5, 3E15.7)') k, utgw(i,k), vtgw(i,k), tau(i,0,k)
+           end do
+           write(6, *) '    ...'
+
+           ! Bottom levels
+           do k = pver-4, pver
+              write(6, '(I5, 3E15.7)') k, utgw(i,k), vtgw(i,k), tau(i,0,k)
+           end do
+           write(6,*) '-----------------------------------------------------------'
+       end if
+    end do
+#endif
     ! Calculate energy change for output to CAM's energy checker.
     ! This is sort of cheating; we don't have a good a priori idea of the
     ! energy coming from surface stress, so we just integrate what we and

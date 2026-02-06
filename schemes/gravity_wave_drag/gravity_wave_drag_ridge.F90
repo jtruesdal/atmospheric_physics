@@ -1725,7 +1725,10 @@ contains
     real(kind_phys) :: tau(ncol, -band_oro%ngwv:band_oro%ngwv, pver+1) ! wave Reynolds stress
     real(kind_phys) :: gwut(ncol, pver, -band_oro%ngwv:band_oro%ngwv)  ! gravity wave wind tendency for each wave
     real(kind_phys) :: phase_speeds(ncol, -band_oro%ngwv:band_oro%ngwv)! Wave phase speeds for each column
-
+#ifdef planet_mars
+    ! Column  indices.
+    integer :: i,kk
+#endif
     errmsg = ''
     errflg = 0
 
@@ -1774,6 +1777,41 @@ contains
 
       ! Add the tendencies from each ridge to the totals.
       do k = 1, pver
+#ifdef planet_mars
+         ! =======================================================================
+         ! [DEBUG] MARS RIDGE DRAG - Extreme Topography Check
+         ! Filters for mountains > 8km (Tharsis/Olympus) to verify Ridge Data & Drag
+         ! =======================================================================
+         do i = 1, ncol
+            ! Trigger only on extreme topography (Height > 8000m)
+            if (mxdis(i, nn) > 8000.0_kind_phys) then
+
+               write(6,*) "DEBUG: MARS RIDGE DRAG - Extreme Topo Detected in Col", i
+               write(6,*) "  Ridge Index:   ", nn
+               write(6,*) "  Ridge Height:  ", mxdis(i, nn), " m"
+               write(6,*) "  Anisotropy:    ", anixy(i, nn), " (0=None, 1=Ridge)"
+               write(6,*) "  Orientation:   ", angll(i, nn), " deg"
+               write(6,*) "  Width (km):    ", hwdth(i, nn)
+               write(6,*) "  Sfc Stress:    ", tau(i, 0, pver+1)
+               write(6,*) "  Source Level:  ", src_level(i)
+
+               ! Print tendency profile if stress is non-zero
+               if (abs(tau(i, 0, pver+1)) > 1.0e-9_kind_phys) then
+                  write(6,*) "  Vertical Profile (Top 5 Levels - The Brake):"
+                  write(6,*) "    Lev      U-Tend        V-Tend        Stress(Tau)"
+                  do kk = 1, 5
+                     write(6,'(4x,I3, 3(1x,E12.4))') kk, utgw(i,kk), vtgw(i,kk), tau(i,0,kk)
+                  end do
+               else
+                  write(6,*) "  [!] Height is high, but Surface Stress is ZERO."
+                  write(6,*) "      Check if Anisotropy or Eff_Beta is set correctly."
+               endif
+
+               write(6,*) "-----------------------------------------------------------"
+            endif
+         end do
+        ! =======================================================================
+#endif
         ! diagnostics
         utrdg(:, k) = utrdg(:, k) + utgw(:, k)
         vtrdg(:, k) = vtrdg(:, k) + vtgw(:, k)
